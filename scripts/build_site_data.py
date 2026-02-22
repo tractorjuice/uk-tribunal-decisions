@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
-"""Convert tribunal_decisions.json into a slim JSON file for the GitHub Pages site."""
+"""Convert tribunal decisions data into a slim JSON file for the GitHub Pages site.
+
+Reads from the enriched file (tribunal_decisions_full.json) if available, falling back
+to the index file (tribunal_decisions.json). Strips large fields (full_text, attachments)
+to keep the output compact for client-side use.
+"""
 
 import json
 import sys
@@ -10,13 +15,23 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 DATA_DIR = SCRIPT_DIR.parent / "data"
 DOCS_DATA_DIR = SCRIPT_DIR.parent / "docs" / "data"
 
-INPUT = DATA_DIR / "tribunal_decisions.json"
+ENRICHED_INPUT = DATA_DIR / "tribunal_decisions_full.json"
+INDEX_INPUT = DATA_DIR / "tribunal_decisions.json"
 OUTPUT = DOCS_DATA_DIR / "decisions.json"
+
+# Fields to strip from each decision (too large for frontend)
+STRIP_FIELDS = {"full_text", "attachments", "content_id", "_enrichment_error", "text_source"}
 
 
 def main():
-    print(f"Reading {INPUT} ...")
-    with open(INPUT) as f:
+    # Prefer enriched file (has structured fields), fall back to index
+    if ENRICHED_INPUT.exists():
+        input_path = ENRICHED_INPUT
+    else:
+        input_path = INDEX_INPUT
+
+    print(f"Reading {input_path} ...")
+    with open(input_path) as f:
         raw = json.load(f)
 
     decisions = raw["decisions"]
@@ -53,6 +68,19 @@ def main():
     for cat, subs in sorted(cat_to_sub.items()):
         category_hierarchy[cat] = sorted(subs)
 
+    # Structured field coverage
+    coverage = {}
+    for field in ["applicant", "respondent", "tribunal_members", "presiding_judge",
+                  "decision_outcome", "financial_amounts", "hearing_date", "legal_acts_cited"]:
+        count = sum(1 for d in decisions if d.get(field))
+        coverage[field] = count
+
+    # Legal acts frequency
+    legal_acts = Counter()
+    for d in decisions:
+        for act in d.get("legal_acts_cited", []):
+            legal_acts[act] += 1
+
     stats = {
         "total": len(decisions),
         "categories": dict(sorted(categories.items(), key=lambda x: -x[1])),
@@ -64,11 +92,19 @@ def main():
             "earliest": min((d["decision_date"] for d in decisions if d.get("decision_date")), default=""),
             "latest": max((d["decision_date"] for d in decisions if d.get("decision_date")), default=""),
         },
+        "field_coverage": coverage,
+        "legal_acts": dict(sorted(legal_acts.items(), key=lambda x: -x[1])[:20]),
     }
+
+    # Strip large fields from decisions for frontend
+    slim_decisions = []
+    for d in decisions:
+        slim = {k: v for k, v in d.items() if k not in STRIP_FIELDS}
+        slim_decisions.append(slim)
 
     output = {
         "stats": stats,
-        "decisions": decisions,
+        "decisions": slim_decisions,
     }
 
     DOCS_DATA_DIR.mkdir(parents=True, exist_ok=True)
