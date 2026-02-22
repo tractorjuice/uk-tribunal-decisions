@@ -252,7 +252,11 @@
         var searchable = (
           (d.property_address || "") + " " +
           (d.case_reference || "") + " " +
-          (d.description || "")
+          (d.description || "") + " " +
+          (d.applicant || "") + " " +
+          (d.respondent || "") + " " +
+          (d.presiding_judge || "") + " " +
+          (d.decision_outcome || "")
         ).toLowerCase();
         for (var i = 0; i < tokens.length; i++) {
           if (searchable.indexOf(tokens[i]) === -1) return false;
