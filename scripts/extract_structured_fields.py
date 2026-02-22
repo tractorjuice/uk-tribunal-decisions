@@ -22,6 +22,8 @@ import re
 import time
 from datetime import datetime
 
+VALID_REGION_CODES = {'LON', 'CHI', 'MAN', 'BIR', 'CAM', 'HAV', 'NS', 'TR', 'NT', 'VG', 'NAT', 'GB', 'RC'}
+
 
 # --- Applicant / Respondent extraction ---
 
@@ -76,6 +78,16 @@ def _is_noise(val):
     # Reject if it's mostly numbers or punctuation
     alpha = sum(1 for c in val if c.isalpha())
     if alpha < 3:
+        return True
+    return False
+
+
+def _is_bad_short_value(val):
+    """Check if a value is a garbage short string (1-3 chars of punctuation/noise)."""
+    if not val or not isinstance(val, str):
+        return True
+    stripped = val.strip()
+    if len(stripped) <= 3:
         return True
     return False
 
@@ -169,6 +181,41 @@ def _clean_member_name(raw):
     return val
 
 
+def _filter_tribunal_members(members):
+    """Filter noisy entries from tribunal members list."""
+    if not members:
+        return []
+
+    noise_re = re.compile(
+        r'^(?:Landlords?|Tenants?|Applicants?|Respondents?|Lessees?|Freeholders?|'
+        r'None|N/?A|Not applicable|Unknown|'
+        r'FHSJA|AISMA|ARLA|RICS|BSc|BA|MA|LLB|MRICS|FRICS|'
+        r'See above|As above|Various)$',
+        re.IGNORECASE
+    )
+    postcode_re = re.compile(r'[A-Z]{1,2}\d[A-Z\d]?\s*\d[A-Z]{2}', re.IGNORECASE)
+
+    filtered = []
+    for member in members:
+        stripped = member.strip()
+        if noise_re.match(stripped):
+            continue
+        if postcode_re.search(member):
+            continue
+        if '\t' in member and re.search(
+            r'\t\s*(?:Applicant|Respondent|Landlord|Tenant)', member, re.IGNORECASE
+        ):
+            continue
+        words = stripped.split()
+        if len(words) == 1 and not re.match(
+            r'(?:Judge|Deputy|Chairman|Dr|Prof|Sir|Dame)', words[0], re.IGNORECASE
+        ):
+            continue
+        filtered.append(member)
+
+    return filtered[:5]
+
+
 def extract_presiding_judge(members):
     """Identify the presiding judge from tribunal members list."""
     if not members:
@@ -218,6 +265,20 @@ def extract_decision_outcome(text):
             return outcome
 
     return None
+
+
+def _truncate_outcome(outcome):
+    """Truncate overly long decision outcomes at a sentence boundary."""
+    if not outcome or len(outcome) <= 200:
+        return outcome
+    # Find first sentence boundary after 200 chars
+    idx = outcome.find('. ', 200)
+    if idx != -1 and idx < 300:
+        return outcome[:idx + 1]
+    # Hard cap at 300
+    if len(outcome) > 300:
+        return outcome[:297] + '...'
+    return outcome
 
 
 # --- Financial amounts ---
@@ -375,6 +436,112 @@ def fix_decision_dates(decisions):
     return fixed
 
 
+# --- Region code fixing ---
+
+def fix_missing_region_codes(decisions):
+    """Fix missing and invalid region codes by searching case_reference, property_address, and full_text."""
+    ref_pattern = re.compile(
+        r'\b(' + '|'.join(VALID_REGION_CODES) + r')/'
+    )
+
+    fuzzy_map = {
+        'BI': 'BIR', 'LO': 'LON', 'MA': 'MAN', 'CH': 'CHI',
+        'CA': 'CAM', 'HA': 'HAV',
+    }
+
+    fixed_invalid = 0
+    fixed_missing = 0
+
+    for decision in decisions:
+        region = decision.get('region_code', '')
+
+        if region and region in VALID_REGION_CODES:
+            continue
+
+        case_ref = decision.get('case_reference', '')
+        prop_addr = decision.get('property_address', '')
+        text = decision.get('full_text', '')
+
+        if region and region not in VALID_REGION_CODES:
+            # Invalid code - try to find valid code in case_reference
+            found = None
+            m = ref_pattern.search(case_ref)
+            if m:
+                found = m.group(1).upper()
+            else:
+                prefix = region[:2].upper()
+                if prefix in fuzzy_map:
+                    found = fuzzy_map[prefix]
+
+            if found:
+                decision['region_code'] = found
+                fixed_invalid += 1
+                continue
+
+        # Missing or unfixable invalid code - search other fields
+        found = None
+        for source in [case_ref, prop_addr, text[:500] if text else '']:
+            if not source:
+                continue
+            m = ref_pattern.search(source)
+            if m:
+                found = m.group(1).upper()
+                break
+
+        if found:
+            decision['region_code'] = found
+            if not case_ref and text:
+                ref_m = re.search(
+                    r'(' + '|'.join(VALID_REGION_CODES) + r')/\S+',
+                    text[:500]
+                )
+                if ref_m:
+                    decision['case_reference'] = ref_m.group(0)
+            fixed_missing += 1
+
+    return fixed_invalid, fixed_missing
+
+
+# --- Short full_text cleanup ---
+
+def clean_short_full_text(decisions):
+    """Null out full_text that is too short to extract meaningful data from."""
+    cleaned = 0
+    for decision in decisions:
+        text = decision.get('full_text', '')
+        if text and len(text) < 100:
+            decision['full_text'] = None
+            cleaned += 1
+    return cleaned
+
+
+# --- Post-extraction cleanup ---
+
+def clean_extracted_fields(decisions):
+    """Post-extraction cleanup: remove garbage short values and extreme amounts."""
+    bad_applicant = 0
+    bad_respondent = 0
+    bad_amounts = 0
+
+    for decision in decisions:
+        if decision.get('applicant') and _is_bad_short_value(decision['applicant']):
+            decision['applicant'] = None
+            bad_applicant += 1
+        if decision.get('respondent') and _is_bad_short_value(decision['respondent']):
+            decision['respondent'] = None
+            bad_respondent += 1
+
+        amounts = decision.get('financial_amounts', [])
+        if amounts:
+            filtered = [a for a in amounts if a <= 50_000_000]
+            removed = len(amounts) - len(filtered)
+            if removed > 0:
+                bad_amounts += removed
+                decision['financial_amounts'] = filtered if filtered else []
+
+    return bad_applicant, bad_respondent, bad_amounts
+
+
 # --- Main processing ---
 
 def extract_all_fields(decision):
@@ -399,6 +566,7 @@ def extract_all_fields(decision):
 
     # Tribunal members (always extract, new field)
     members = extract_tribunal_members(text)
+    members = _filter_tribunal_members(members)
     if members:
         fields["tribunal_members"] = members
         judge = extract_presiding_judge(members)
@@ -407,6 +575,7 @@ def extract_all_fields(decision):
 
     # Decision outcome (always extract, new field)
     outcome = extract_decision_outcome(text)
+    outcome = _truncate_outcome(outcome)
     if outcome:
         fields["decision_outcome"] = outcome
 
@@ -476,10 +645,22 @@ def main():
     else:
         print("No date fixes needed\n")
 
+    # Fix missing and invalid region codes
+    print("Fixing missing/invalid region codes...")
+    fixed_invalid, fixed_missing = fix_missing_region_codes(decisions)
+    print(f"  Fixed {fixed_invalid} invalid region code(s)")
+    print(f"  Fixed {fixed_missing} missing region code(s)\n")
+
+    # Clean short full_text before extraction
+    print("Cleaning short full_text entries...")
+    short_cleaned = clean_short_full_text(decisions)
+    print(f"  Nulled {short_cleaned} full_text entries <100 chars\n")
+
     # Pre-extraction stats
     pre_stats = {
         "applicant": sum(1 for d in decisions if d.get("applicant")),
         "respondent": sum(1 for d in decisions if d.get("respondent")),
+        "region_code": sum(1 for d in decisions if d.get("region_code")),
     }
 
     start_time = time.time()
@@ -538,10 +719,18 @@ def main():
 
     elapsed = time.time() - start_time
 
+    # Post-extraction cleanup
+    print("\nCleaning extracted fields...")
+    bad_app, bad_resp, bad_amts = clean_extracted_fields(decisions)
+    print(f"  Removed {bad_app} garbage applicant value(s)")
+    print(f"  Removed {bad_resp} garbage respondent value(s)")
+    print(f"  Removed {bad_amts} extreme financial amount(s) (>£50M)")
+
     # Post-extraction stats
     post_stats = {
         "applicant": sum(1 for d in decisions if d.get("applicant")),
         "respondent": sum(1 for d in decisions if d.get("respondent")),
+        "region_code": sum(1 for d in decisions if d.get("region_code")),
         "tribunal_members": sum(1 for d in decisions if d.get("tribunal_members")),
         "presiding_judge": sum(1 for d in decisions if d.get("presiding_judge")),
         "decision_outcome": sum(1 for d in decisions if d.get("decision_outcome")),
@@ -574,6 +763,7 @@ def main():
     fields_report = [
         ("applicant", pre_stats["applicant"], post_stats["applicant"]),
         ("respondent", pre_stats["respondent"], post_stats["respondent"]),
+        ("region_code", pre_stats["region_code"], post_stats["region_code"]),
         ("tribunal_members", 0, post_stats["tribunal_members"]),
         ("presiding_judge", 0, post_stats["presiding_judge"]),
         ("decision_outcome", 0, post_stats["decision_outcome"]),
