@@ -104,6 +104,7 @@
         allDecisions = data.decisions;
         els.loading.hidden = true;
         els.content.hidden = false;
+        var sc = document.getElementById("static-content"); if (sc) sc.hidden = true;
         renderStats();
         populateFilters();
         applyFilters();

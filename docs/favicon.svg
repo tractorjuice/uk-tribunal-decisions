@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="#1d70b8">
+  <!-- Scales of justice -->
+  <!-- Central pillar -->
+  <rect x="30" y="12" width="4" height="40" rx="1"/>
+  <!-- Base -->
+  <rect x="18" y="52" width="28" height="4" rx="2"/>
+  <!-- Beam -->
+  <rect x="6" y="10" width="52" height="3" rx="1.5"/>
+  <!-- Left pan strings -->
+  <line x1="12" y1="13" x2="6" y2="30" stroke="#1d70b8" stroke-width="2"/>
+  <line x1="12" y1="13" x2="18" y2="30" stroke="#1d70b8" stroke-width="2"/>
+  <!-- Left pan -->
+  <path d="M3 30 Q12 38 21 30 Z"/>
+  <!-- Right pan strings -->
+  <line x1="52" y1="13" x2="46" y2="30" stroke="#1d70b8" stroke-width="2"/>
+  <line x1="52" y1="13" x2="58" y2="30" stroke="#1d70b8" stroke-width="2"/>
+  <!-- Right pan -->
+  <path d="M43 30 Q52 38 61 30 Z"/>
+  <!-- Top circle -->
+  <circle cx="32" cy="8" r="4"/>
+</svg>

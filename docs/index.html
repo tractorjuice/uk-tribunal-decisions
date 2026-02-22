@@ -5,6 +5,52 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>UK Residential Property Tribunal Decisions</title>
   <meta name="description" content="Browse and search 16,000+ First-tier Tribunal (Property Chamber) residential property decisions from GOV.UK">
+  <link rel="canonical" href="https://tractorjuice.github.io/uk-tribunal-decisions/">
+  <meta name="theme-color" content="#1d2d35">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="UK Residential Property Tribunal Decisions">
+  <meta property="og:description" content="Browse and search 16,000+ First-tier Tribunal (Property Chamber) residential property decisions from GOV.UK">
+  <meta property="og:url" content="https://tractorjuice.github.io/uk-tribunal-decisions/">
+  <meta property="og:locale" content="en_GB">
+  <meta property="og:site_name" content="UK Tribunal Decisions">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="UK Residential Property Tribunal Decisions">
+  <meta name="twitter:description" content="Browse and search 16,000+ First-tier Tribunal (Property Chamber) residential property decisions from GOV.UK">
+
+  <!-- Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Dataset",
+    "name": "UK Residential Property Tribunal Decisions",
+    "description": "A searchable database of 16,000+ decisions from the First-tier Tribunal (Property Chamber) covering leasehold disputes, rents, park homes, housing conditions, and land registration. Sourced from GOV.UK.",
+    "keywords": ["tribunal", "property", "leasehold", "residential", "UK", "HMCTS", "First-tier Tribunal", "Property Chamber", "rents", "housing"],
+    "url": "https://tractorjuice.github.io/uk-tribunal-decisions/",
+    "license": "https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/",
+    "isAccessibleForFree": true,
+    "temporalCoverage": "2001/..",
+    "spatialCoverage": {
+      "@type": "Place",
+      "name": "England"
+    },
+    "distribution": {
+      "@type": "DataDownload",
+      "encodingFormat": "application/json",
+      "contentUrl": "https://tractorjuice.github.io/uk-tribunal-decisions/data/decisions.json"
+    },
+    "creator": {
+      "@type": "Organization",
+      "name": "HM Courts & Tribunals Service",
+      "url": "https://www.gov.uk/government/organisations/hm-courts-and-tribunals-service"
+    }
+  }
+  </script>
+
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -14,6 +60,28 @@
   </header>
 
   <main>
+    <!-- Static content for SEO and no-JS users -->
+    <section id="static-content" class="static-content">
+      <h2>About This Database</h2>
+      <p>This database contains over 16,000 decisions from the <strong>First-tier Tribunal (Property Chamber)</strong>, the body that resolves disputes about residential property in England. All decisions are sourced from <a href="https://www.gov.uk/residential-property-tribunal-decisions" target="_blank" rel="noopener">GOV.UK</a> and published under the Open Government Licence.</p>
+
+      <h3>Decision Categories</h3>
+      <ul>
+        <li>Leasehold Disputes — 6,492 decisions</li>
+        <li>Rents — 5,091 decisions</li>
+        <li>Park Homes — 1,816 decisions</li>
+        <li>Housing and Property — 1,237 decisions</li>
+        <li>Land Registration — 886 decisions</li>
+        <li>Right to Manage — 363 decisions</li>
+        <li>Leasehold Reform — 225 decisions</li>
+      </ul>
+
+      <h3>Coverage</h3>
+      <p>Decisions span from 2001 to present, covering all tribunal regions across England including London, Chichester, Manchester, Birmingham, Cambridge, and Havant. Each record includes the decision date, case reference, property address, category, and a link to the full decision on GOV.UK.</p>
+
+      <p>Data is licensed under the <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence v3.0</a>.</p>
+    </section>
+
     <!-- Loading state -->
     <div id="loading" class="loading">
       <div class="spinner"></div>
