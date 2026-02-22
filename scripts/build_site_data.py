@@ -7,6 +7,7 @@ to keep the output compact for client-side use.
 """
 
 import json
+import re
 import sys
 from collections import Counter
 from pathlib import Path
@@ -96,10 +97,30 @@ def main():
         "legal_acts": dict(sorted(legal_acts.items(), key=lambda x: -x[1])[:20]),
     }
 
+    # Build search keyword index from full_text
+    # Keep only distinctive words (appearing in <5% of documents) to stay compact
+    print("  Building search keyword index...")
+    doc_freq = Counter()
+    doc_words = []  # parallel to decisions
+    for d in decisions:
+        text = d.get("full_text", "") or ""
+        words = set(re.findall(r"[a-zA-Z]{3,}", text.lower())) if text else set()
+        doc_words.append(words)
+        for w in words:
+            doc_freq[w] += 1
+
+    max_doc_freq = len(decisions) * 0.05  # 5% threshold
+    common_words = {w for w, c in doc_freq.items() if c > max_doc_freq}
+    print(f"  Vocabulary: {len(doc_freq):,} total, {len(common_words):,} common (dropped)")
+
     # Strip large fields from decisions for frontend
     slim_decisions = []
-    for d in decisions:
+    for i, d in enumerate(decisions):
         slim = {k: v for k, v in d.items() if k not in STRIP_FIELDS}
+        # Add search keywords (distinctive words from full_text)
+        distinctive = doc_words[i] - common_words
+        if distinctive:
+            slim["search_keywords"] = " ".join(sorted(distinctive))
         slim_decisions.append(slim)
 
     output = {
