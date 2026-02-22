@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://tractorjuice.github.io/uk-tribunal-decisions/sitemap.xml
