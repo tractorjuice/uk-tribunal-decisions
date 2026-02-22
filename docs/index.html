@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>UK Residential Property Tribunal Decisions</title>
+  <meta name="description" content="Browse and search 16,000+ First-tier Tribunal (Property Chamber) residential property decisions from GOV.UK">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header>
+    <h1>UK Residential Property Tribunal Decisions</h1>
+    <p class="subtitle">First-tier Tribunal (Property Chamber) decisions published on GOV.UK</p>
+  </header>
+
+  <main>
+    <!-- Loading state -->
+    <div id="loading" class="loading">
+      <div class="spinner"></div>
+      <p>Loading decisions database&hellip;</p>
+    </div>
+
+    <!-- Error state -->
+    <div id="error" class="error" hidden>
+      <p>Failed to load decisions data. Please try refreshing the page.</p>
+    </div>
+
+    <!-- Content (hidden until data loads) -->
+    <div id="content" hidden>
+
+      <!-- Stats Dashboard -->
+      <section id="stats" class="stats-section">
+        <h2>Overview</h2>
+        <div class="stats-cards">
+          <div class="stat-card">
+            <span class="stat-value" id="stat-total">—</span>
+            <span class="stat-label">Total Decisions</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-categories">—</span>
+            <span class="stat-label">Categories</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-date-range">—</span>
+            <span class="stat-label">Date Range</span>
+          </div>
+          <div class="stat-card">
+            <span class="stat-value" id="stat-regions">—</span>
+            <span class="stat-label">Regions</span>
+          </div>
+        </div>
+
+        <div class="chart-section">
+          <h3>Decisions by Category</h3>
+          <div id="category-chart" class="bar-chart"></div>
+        </div>
+      </section>
+
+      <!-- Search & Filters -->
+      <section id="search-section" class="search-section">
+        <h2>Search &amp; Filter</h2>
+        <div class="search-bar">
+          <input type="search" id="search-input" placeholder="Search by property address, case reference, or description&hellip;" autocomplete="off">
+          <button type="button" id="search-btn">Search</button>
+        </div>
+
+        <div class="filters">
+          <div class="filter-group">
+            <label for="filter-category">Category</label>
+            <select id="filter-category">
+              <option value="">All categories</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filter-subcategory">Sub-category</label>
+            <select id="filter-subcategory">
+              <option value="">All sub-categories</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filter-region">Region</label>
+            <select id="filter-region">
+              <option value="">All regions</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filter-year-from">Year from</label>
+            <select id="filter-year-from">
+              <option value="">Any</option>
+            </select>
+          </div>
+          <div class="filter-group">
+            <label for="filter-year-to">Year to</label>
+            <select id="filter-year-to">
+              <option value="">Any</option>
+            </select>
+          </div>
+          <div class="filter-group filter-actions">
+            <button type="button" id="clear-filters">Clear filters</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results -->
+      <section id="results-section" class="results-section">
+        <div class="results-header">
+          <h2>Results <span id="results-count"></span></h2>
+          <div class="sort-controls">
+            <label for="sort-by">Sort by</label>
+            <select id="sort-by">
+              <option value="date-desc">Date (newest first)</option>
+              <option value="date-asc">Date (oldest first)</option>
+              <option value="address-asc">Address (A–Z)</option>
+              <option value="address-desc">Address (Z–A)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="table-wrapper">
+          <table id="results-table">
+            <thead>
+              <tr>
+                <th class="col-date sortable" data-sort="date">Date</th>
+                <th class="col-ref">Case Ref</th>
+                <th class="col-address sortable" data-sort="address">Property Address</th>
+                <th class="col-category">Category</th>
+                <th class="col-region">Region</th>
+                <th class="col-link">Link</th>
+              </tr>
+            </thead>
+            <tbody id="results-body">
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pagination" id="pagination">
+          <button type="button" id="page-prev" disabled>&laquo; Previous</button>
+          <span id="page-info"></span>
+          <button type="button" id="page-next">Next &raquo;</button>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <footer>
+    <p>Data sourced from <a href="https://www.gov.uk/residential-property-tribunal-decisions" target="_blank" rel="noopener">GOV.UK</a>. This site is not affiliated with or endorsed by GOV.UK or HMCTS.</p>
+    <p>Contains public sector information licensed under the <a href="https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/" target="_blank" rel="noopener">Open Government Licence v3.0</a>.</p>
+  </footer>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
