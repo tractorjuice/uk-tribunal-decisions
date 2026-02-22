@@ -256,7 +256,8 @@
           (d.applicant || "") + " " +
           (d.respondent || "") + " " +
           (d.presiding_judge || "") + " " +
-          (d.decision_outcome || "")
+          (d.decision_outcome || "") + " " +
+          (d.search_keywords || "")
         ).toLowerCase();
         for (var i = 0; i < tokens.length; i++) {
           if (searchable.indexOf(tokens[i]) === -1) return false;
