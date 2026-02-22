@@ -20,6 +20,7 @@ import json
 import os
 import re
 import time
+from datetime import datetime
 
 
 # --- Applicant / Respondent extraction ---
@@ -307,6 +308,73 @@ def extract_legal_acts(text):
     return acts
 
 
+# --- Decision date fixing ---
+
+def fix_decision_dates(decisions):
+    """Fix decisions with obviously wrong years in decision_date.
+
+    Some GOV.UK entries have typos in the year (e.g. 2925, 3034).
+    Uses published_at as a reliable reference to derive the correct year.
+    """
+    current_year = datetime.now().year
+    min_year = 2001
+    max_year = current_year + 1
+    fixed = 0
+
+    for decision in decisions:
+        date_str = decision.get("decision_date")
+        published_at = decision.get("published_at")
+        if not date_str or not published_at:
+            continue
+
+        # Parse year from decision_date (format: YYYY-MM-DD)
+        m = re.match(r'^(\d{4})-(\d{2})-(\d{2})$', date_str)
+        if not m:
+            continue
+        year = int(m.group(1))
+
+        # Parse published_at to get the reference year (ISO 8601)
+        pub_m = re.match(r'^(\d{4})-(\d{2})-(\d{2})', published_at)
+        if not pub_m:
+            continue
+        pub_year = int(pub_m.group(1))
+        pub_month = int(pub_m.group(2))
+        pub_day = int(pub_m.group(3))
+
+        # Check 1: year outside reasonable range
+        # Check 2: decision_date > published_at by 90+ days (year typo)
+        needs_fix = year < min_year or year > max_year
+        if not needs_fix:
+            try:
+                dec_date = datetime(year, int(m.group(2)), int(m.group(3)))
+                pub_date = datetime(pub_year, pub_month, pub_day)
+                if (dec_date - pub_date).days > 90:
+                    needs_fix = True
+            except ValueError:
+                pass
+
+        if not needs_fix:
+            continue
+
+        # Use published_at year as the corrected year
+        corrected_year = pub_year
+        dec_month = int(m.group(2))
+        dec_day = int(m.group(3))
+
+        # If corrected date would be after published_at, use pub_year - 1
+        # (handles December decisions published in January)
+        if (corrected_year, dec_month, dec_day) > (pub_year, pub_month, pub_day):
+            corrected_year = pub_year - 1
+
+        new_date = f"{corrected_year:04d}-{m.group(2)}-{m.group(3)}"
+        ref = decision.get("case_reference", decision.get("title", "unknown"))
+        print(f"  Fixed date: {date_str} -> {new_date}  [{ref}]")
+        decision["decision_date"] = new_date
+        fixed += 1
+
+    return fixed
+
+
 # --- Main processing ---
 
 def extract_all_fields(decision):
@@ -399,6 +467,14 @@ def main():
     print(f"Total decisions: {total:,}")
     print(f"With full_text: {with_text:,}")
     print()
+
+    # Fix decisions with wrong years in decision_date
+    print("Checking decision dates for year typos...")
+    date_fixes = fix_decision_dates(decisions)
+    if date_fixes:
+        print(f"Fixed {date_fixes} decision date(s)\n")
+    else:
+        print("No date fixes needed\n")
 
     # Pre-extraction stats
     pre_stats = {
