@@ -18,6 +18,7 @@
     NAT: "National",
     GB: "GB",
     RC: "RC",
+    WAL: "Wales",
     Unknown: "Unknown",
   };
 

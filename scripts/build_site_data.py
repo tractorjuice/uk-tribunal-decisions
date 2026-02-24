@@ -18,10 +18,11 @@ DOCS_DATA_DIR = SCRIPT_DIR.parent / "docs" / "data"
 
 ENRICHED_INPUT = DATA_DIR / "tribunal_decisions_full.json"
 INDEX_INPUT = DATA_DIR / "tribunal_decisions.json"
+WALES_INPUT = DATA_DIR / "wales_tribunal_decisions.json"
 OUTPUT = DOCS_DATA_DIR / "decisions.json"
 
 # Fields to strip from each decision (too large for frontend)
-STRIP_FIELDS = {"full_text", "attachments", "content_id", "_enrichment_error", "text_source"}
+STRIP_FIELDS = {"full_text", "attachments", "content_id", "_enrichment_error", "text_source", "data_source"}
 
 
 def main():
@@ -36,7 +37,18 @@ def main():
         raw = json.load(f)
 
     decisions = raw["decisions"]
-    print(f"  {len(decisions)} decisions loaded")
+    print(f"  {len(decisions)} England decisions loaded")
+
+    # Merge Wales decisions if available
+    if WALES_INPUT.exists():
+        print(f"Reading {WALES_INPUT} ...")
+        with open(WALES_INPUT) as f:
+            wales_raw = json.load(f)
+        wales_decisions = wales_raw["decisions"]
+        decisions.extend(wales_decisions)
+        print(f"  {len(wales_decisions)} Wales decisions merged")
+
+    print(f"  {len(decisions)} total decisions")
 
     # Compute stats
     categories = Counter()
