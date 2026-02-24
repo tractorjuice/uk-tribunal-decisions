@@ -1,10 +1,10 @@
 # UK Residential Property Tribunal Decisions Database
 
-A complete database of all First-tier Tribunal (Property Chamber) residential property decisions published on GOV.UK.
+A complete database of residential property tribunal decisions from England (GOV.UK) and Wales (residentialpropertytribunal.gov.wales).
 
 ## Browse the Database
 
-**[View the searchable database online](https://tractorjuice.github.io/uk-tribunal-decisions/)** — search and filter all 16,110 decisions by category, region, year, and keyword.
+**[View the searchable database online](https://tractorjuice.github.io/uk-tribunal-decisions/)** — search and filter all 16,873 decisions by category, region, year, and keyword.
 
 To configure GitHub Pages: set the source to the `/docs` directory on the `main` branch in your repository settings.
 
@@ -13,73 +13,110 @@ To configure GitHub Pages: set the source to the `/docs` directory on the `main`
 ```
 Tribunal-Decisions/
 ├── data/
-│   ├── tribunal_decisions.json        # Index database (16,110 decisions, ~14 MB)
-│   └── tribunal_decisions_full.json   # Full database with decision text (~306 MB, Git LFS)
-├── docs/                              # GitHub Pages site
-│   ├── index.html                     # Searchable decisions browser
+│   ├── tribunal_decisions.json          # England index (16,110 decisions, ~14 MB)
+│   ├── tribunal_decisions_full.json     # England full text (~306 MB, Git LFS)
+│   ├── wales_tribunal_decisions.json    # Wales decisions with full text (~9 MB)
+│   ├── pdf_manifest.json               # England PDF download manifest
+│   └── wales_pdf_manifest.json         # Wales PDF download manifest
+├── docs/                                # GitHub Pages site
+│   ├── index.html
 │   ├── css/style.css
 │   ├── js/app.js
-│   └── data/decisions.json            # Site data (generated from index)
+│   └── data/decisions.json              # Site data (merged England + Wales)
 ├── scripts/
-│   ├── scrape_tribunal_decisions.py   # Scrapes decision metadata from GOV.UK search API
-│   ├── enrich_tribunal_decisions.py   # Enriches with full text via GOV.UK content API
-│   └── build_site_data.py            # Generates docs/data/decisions.json from index
+│   ├── scrape_tribunal_decisions.py     # Scrape England metadata from GOV.UK
+│   ├── enrich_tribunal_decisions.py     # Enrich England with full text
+│   ├── extract_structured_fields.py     # Extract structured fields from text
+│   ├── fetch_pdfs.py                    # Fetch PDFs for England decisions
+│   ├── scrape_wales_decisions.py        # Scrape Wales decisions + PDFs
+│   └── build_site_data.py              # Build frontend data (merges both)
 └── README.md
 ```
 
 ## Data
 
-### tribunal_decisions.json (Index)
+### England — tribunal_decisions_full.json
 
-Metadata for all 16,110 decisions scraped from the GOV.UK search API:
+Enriched metadata and full text for 16,110 decisions from the GOV.UK Search and Content APIs:
 
-- `title`, `description`, `link`
 - `case_reference`, `property_address`, `region_code`
-- `tribunal_decision_category`, `tribunal_decision_sub_category`
-- `tribunal_decision_decision_date`, `public_timestamp`
+- `category`, `sub_category`, `decision_date`
+- `full_text` — complete decision text (99.7% coverage)
+- `applicant`, `respondent` — parsed from text (~94%)
+- `tribunal_members`, `presiding_judge` (~84%)
+- `decision_outcome`, `financial_amounts`, `hearing_date`
+- `legal_acts_cited` (~95%)
 
-### tribunal_decisions_full.json (Full Text)
+### Wales — wales_tribunal_decisions.json
 
-Enriched version with additional fields from the GOV.UK content API:
+763 decisions scraped from residentialpropertytribunal.gov.wales across 3 tribunal types:
 
-- `full_text` — complete decision text (98.9% coverage)
-- `attachments` — PDF URLs and metadata (99.8% coverage, 19,244 PDFs)
-- `content_id` — GOV.UK content UUID
-- `applicant`, `respondent`, `application_type` — parsed from text
+- Wales - Leasehold Valuation (347 decisions)
+- Wales - Rent Assessment (261 decisions)
+- Wales - Residential Property (155 decisions)
+- Full text extracted from PDFs (93% coverage)
+- Structured fields extracted using the same regex pipeline as England
 
 ## Scripts
 
-### Scraping
+### England Pipeline
 
 ```bash
-# Scrape all decision metadata (takes ~5 minutes)
+# 1. Scrape metadata (~5 minutes)
 python3 scripts/scrape_tribunal_decisions.py
 
-# Enrich with full text and PDFs (takes ~15 minutes, resumes on interruption)
+# 2. Enrich with full text (~15 minutes, resumable)
 python3 scripts/enrich_tribunal_decisions.py
+
+# 3. Extract structured fields (~45 seconds)
+python3 scripts/extract_structured_fields.py
+
+# 4. Fetch PDFs for decisions missing text
+python3 scripts/fetch_pdfs.py
+python3 scripts/extract_structured_fields.py
 ```
 
-Both scripts accept `--output` / `--input` flags to override default paths. By default they read/write to `data/`.
+### Wales Pipeline
+
+```bash
+# Scrape decisions, detail pages, and PDFs (~30 minutes)
+python3 scripts/scrape_wales_decisions.py
+
+# Test with a small sample first
+python3 scripts/scrape_wales_decisions.py --sample 5
+```
+
+### Build Frontend
+
+```bash
+# Merges England + Wales automatically
+python3 scripts/build_site_data.py
+```
 
 ### Requirements
 
 ```
-pip install requests
+pip install requests pdfplumber
 ```
 
 ## API Sources
 
-- **Search API:** `https://www.gov.uk/api/search.json?filter_document_type=residential_property_tribunal_decision`
-- **Content API:** `https://www.gov.uk/api/content/{path}` (for individual decisions)
+- **GOV.UK Search API:** `https://www.gov.uk/api/search.json?filter_document_type=residential_property_tribunal_decision`
+- **GOV.UK Content API:** `https://www.gov.uk/api/content/{path}`
+- **Wales Tribunal:** `https://residentialpropertytribunal.gov.wales/decisions/{type_id}/{year_range}`
 
 ## Statistics
 
-| Metric | Value |
-|--------|-------|
-| Total decisions | 16,110 |
-| With full text | 15,935 (98.9%) |
-| With PDF attachments | 16,070 (99.8%) |
-| Total PDF files | 19,244 |
-| With applicant parsed | 12,009 (74.5%) |
-| Average text length | 17,795 chars |
-| Last scraped | 21 February 2026 |
+| Metric | England | Wales | Total |
+|--------|---------|-------|-------|
+| Decisions | 16,110 | 763 | 16,873 |
+| With full text | 16,060 (99.7%) | 708 (92.8%) | 16,768 |
+| With applicant | 15,180 (94.2%) | 703 (92.1%) | 15,883 |
+| With legal acts | 15,483 (96.1%) | 763 (100%) | 16,246 |
+| Tribunal members | 13,728 (85.2%) | 223 (29.2%) | 13,951 |
+| Date range | 2001–present | 2012–present | 2001–present |
+| Regions | 13 | 1 (WAL) | 14 |
+
+## Licence
+
+Data sourced from GOV.UK and the Residential Property Tribunal Wales. Contains public sector information licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
