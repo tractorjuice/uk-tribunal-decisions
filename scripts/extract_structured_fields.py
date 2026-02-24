@@ -22,7 +22,7 @@ import re
 import time
 from datetime import datetime
 
-VALID_REGION_CODES = {'LON', 'CHI', 'MAN', 'BIR', 'CAM', 'HAV', 'NS', 'TR', 'NT', 'VG', 'NAT', 'GB', 'RC'}
+VALID_REGION_CODES = {'LON', 'CHI', 'MAN', 'BIR', 'CAM', 'HAV', 'NS', 'TR', 'NT', 'VG', 'NAT', 'GB', 'RC', 'WAL'}
 
 
 # --- Applicant / Respondent extraction ---

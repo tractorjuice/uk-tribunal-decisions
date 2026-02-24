@@ -1,5 +1,6 @@
 # Downloaded PDFs (3-9GB)
 data/pdfs/
+data/wales_pdfs/
 
 # Python bytecode cache
 __pycache__/
