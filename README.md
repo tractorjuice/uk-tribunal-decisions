@@ -4,7 +4,7 @@ A complete database of residential property tribunal decisions from England (GOV
 
 ## Browse the Database
 
-**[View the searchable database online](https://tractorjuice.github.io/uk-tribunal-decisions/)** — search and filter all 16,873 decisions by category, region, year, and keyword.
+**[View the searchable database online](https://tractorjuice.github.io/uk-tribunal-decisions/)** — search and filter all 17,262 decisions by category, region, year, and keyword.
 
 To configure GitHub Pages: set the source to the `/docs` directory on the `main` branch in your repository settings.
 
@@ -13,8 +13,8 @@ To configure GitHub Pages: set the source to the `/docs` directory on the `main`
 ```
 Tribunal-Decisions/
 ├── data/
-│   ├── tribunal_decisions.json          # England index (16,110 decisions, ~14 MB)
-│   ├── tribunal_decisions_full.json     # England full text (~306 MB, Git LFS)
+│   ├── tribunal_decisions.json          # England index (16,479 decisions, ~15 MB)
+│   ├── tribunal_decisions_full.json     # England full text (~326 MB, Git LFS)
 │   ├── wales_tribunal_decisions.json    # Wales decisions with full text (~9 MB)
 │   ├── pdf_manifest.json               # England PDF download manifest
 │   └── wales_pdf_manifest.json         # Wales PDF download manifest
@@ -37,7 +37,7 @@ Tribunal-Decisions/
 
 ### England — tribunal_decisions_full.json
 
-Enriched metadata and full text for 16,110 decisions from the GOV.UK Search and Content APIs:
+Enriched metadata and full text for 16,486 decisions from the GOV.UK Search and Content APIs:
 
 - `case_reference`, `property_address`, `region_code`
 - `category`, `sub_category`, `decision_date`
@@ -49,11 +49,11 @@ Enriched metadata and full text for 16,110 decisions from the GOV.UK Search and 
 
 ### Wales — wales_tribunal_decisions.json
 
-763 decisions scraped from residentialpropertytribunal.gov.wales across 3 tribunal types:
+776 decisions scraped from residentialpropertytribunal.gov.wales across 3 tribunal types:
 
-- Wales - Leasehold Valuation (347 decisions)
-- Wales - Rent Assessment (261 decisions)
-- Wales - Residential Property (155 decisions)
+- Wales - Leasehold Valuation (350 decisions)
+- Wales - Rent Assessment (265 decisions)
+- Wales - Residential Property (161 decisions)
 - Full text extracted from PDFs (93% coverage)
 - Structured fields extracted using the same regex pipeline as England
 
@@ -109,11 +109,11 @@ pip install requests pdfplumber
 
 | Metric | England | Wales | Total |
 |--------|---------|-------|-------|
-| Decisions | 16,110 | 763 | 16,873 |
-| With full text | 16,060 (99.7%) | 708 (92.8%) | 16,768 |
-| With applicant | 15,180 (94.2%) | 703 (92.1%) | 15,883 |
-| With legal acts | 15,483 (96.1%) | 763 (100%) | 16,246 |
-| Tribunal members | 13,728 (85.2%) | 223 (29.2%) | 13,951 |
+| Decisions | 16,486 | 776 | 17,262 |
+| With full text | 16,461 (99.8%) | 721 (92.9%) | 17,182 |
+| With applicant | 15,631 (94.8%) | 716 (92.3%) | 16,347 |
+| With legal acts | 15,875 (96.3%) | 776 (100%) | 16,651 |
+| Tribunal members | 14,072 (85.4%) | 230 (29.6%) | 14,302 |
 | Date range | 2001–present | 2012–present | 2001–present |
 | Regions | 13 | 1 (WAL) | 14 |
 
