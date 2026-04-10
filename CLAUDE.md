@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A data pipeline and static site for UK Residential Property Tribunal decisions scraped from GOV.UK (England) and residentialpropertytribunal.gov.wales (Wales). Contains 16,110+ England decisions and 650+ Wales decisions with metadata, full text, and PDF attachments. The frontend is hosted on GitHub Pages at https://tractorjuice.github.io/uk-tribunal-decisions/.
+A data pipeline and static site for UK Residential Property Tribunal decisions scraped from GOV.UK (England) and residentialpropertytribunal.gov.wales (Wales). Contains 16,486+ England decisions and 776+ Wales decisions with metadata, full text, and PDF attachments. The frontend is hosted on GitHub Pages at https://tractorjuice.github.io/uk-tribunal-decisions/.
 
 ## Commands
 
