@@ -1,0 +1,77 @@
+# UK Residential Property Tribunal Decisions
+
+> A searchable, open-data database of 17,262+ residential property tribunal decisions from England (First-tier Tribunal, Property Chamber) and Wales (Residential Property Tribunal Wales). Covers leasehold disputes, rents, park homes, housing conditions, enfranchisement, and related matters from 2001 to the present.
+
+The site is a static, client-side search interface (vanilla HTML/CSS/JS, no framework) hosted on GitHub Pages. All data is precomputed into a single JSON file which the frontend fetches and queries in the browser. Decisions are sourced from GOV.UK (England) and residentialpropertytribunal.gov.wales, and are licensed under the Open Government Licence v3.0.
+
+This site is not affiliated with or endorsed by GOV.UK, HMCTS, or the Welsh Government.
+
+## Core data
+
+- [decisions.json](https://tractorjuice.github.io/uk-tribunal-decisions/data/decisions.json): Complete dataset served to the frontend. Top-level keys are `stats` (precomputed aggregates — total counts, categories, sub-categories, regions, year distribution, category hierarchy, field coverage, legal act frequencies, date range) and `decisions` (array of decision records with `case_reference`, `property_address`, `region_code`, `category`, `sub_category`, `decision_date`, `url`, `data_source`, and — where available — `applicant`, `respondent`, `tribunal_members`, `presiding_judge`, `decision_outcome`, `financial_amounts`, `hearing_date`, `legal_acts_cited`, and `full_text`).
+- [Source repository (GitHub)](https://github.com/tractorjuice/uk-tribunal-decisions): Scraping pipeline, extraction scripts, and raw data files. See `README.md` and `CLAUDE.md` for pipeline details.
+
+## Pages
+
+- [Home / search interface](https://tractorjuice.github.io/uk-tribunal-decisions/): Search by property address, case reference, or keyword; filter by category, sub-category, region, and year range; sort by date or address; paginated results at 50 per page.
+- [Sitemap](https://tractorjuice.github.io/uk-tribunal-decisions/sitemap.xml)
+- [robots.txt](https://tractorjuice.github.io/uk-tribunal-decisions/robots.txt)
+
+## Coverage
+
+- **Total decisions:** 17,262 (England 16,486, Wales 776)
+- **Date range:** 2001-05-28 to 2026-03-30
+- **Full-text coverage:** 99.8% England, 92.9% Wales
+- **Extracted legal acts:** 96.3% England, 100% Wales
+
+### Categories (decision counts)
+
+- Leasehold Disputes (Management): 6,677
+- Rents: 5,203
+- Housing Act 2004 and Housing and Planning Act 2016: 2,621
+- Leasehold Enfranchisement and Extension: 971
+- Park Homes: 703
+- Wales - Leasehold Valuation: 350
+- Wales - Rent Assessment: 265
+- Wales - Residential Property: 161
+- Right To Buy: 93
+- Tenant Fees Act: 85
+- Electronic Communications Code: 48
+- Building Safety Act: 45
+- Tenant Associations: 35
+- Leasehold Reform Ground Rent Act 2022: 5
+
+### Regions (decision counts)
+
+- LON (London): 7,633
+- CHI (Chichester): 2,851
+- MAN (Manchester): 1,974
+- BIR (Birmingham): 1,789
+- CAM (Cambridge): 1,614
+- WAL (Wales): 776
+- HAV (Havant): 527
+- Other / national (NS, VG, TR, NT, NAT, GB, RC, Unknown): ~100
+
+### Most-cited legal acts
+
+- Landlord and Tenant Act 1985 (6,957)
+- Tribunal Procedure Rules 2013 (6,579)
+- Rent Act 1977 (3,131)
+- Housing Act 1988 (3,000)
+- Leasehold Reform Act 2002 (2,856)
+- Housing Act 2004 (2,751)
+- Commonhold and Leasehold Reform Act 2002 (2,718)
+- Housing and Planning Act 2016 (1,773)
+- Leasehold Reform, Housing and Urban Development Act 1993 (1,031)
+- Landlord and Tenant Act 1987 (955)
+
+## Upstream sources
+
+- [GOV.UK residential property tribunal decisions](https://www.gov.uk/residential-property-tribunal-decisions): Primary source for England decisions, accessed via the public GOV.UK Search and Content APIs.
+- [Residential Property Tribunal Wales](https://residentialpropertytribunal.gov.wales): Primary source for Wales decisions; HTML pages with linked PDFs.
+- [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/): Licence under which all underlying decision data is published.
+
+## Optional
+
+- [README.md](https://github.com/tractorjuice/uk-tribunal-decisions/blob/main/README.md): Repository overview, pipeline commands, and statistics table.
+- [CLAUDE.md](https://github.com/tractorjuice/uk-tribunal-decisions/blob/main/CLAUDE.md): Detailed architecture notes for the six-stage scrape/enrich/extract/build pipeline.
