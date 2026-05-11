@@ -37,6 +37,61 @@ REQUEST_DELAY = 0.15  # Seconds between requests per thread
 progress_lock = Lock()
 save_lock = Lock()
 stats = {"fetched": 0, "errors": 0, "skipped": 0}
+ENRICHMENT_FIELDS = {
+    "content_id",
+    "full_text",
+    "attachments",
+    "pdf_urls",
+    "applicant",
+    "respondent",
+    "application_type",
+    "tribunal_members",
+    "presiding_judge",
+    "decision_outcome",
+    "financial_amounts",
+    "hearing_date",
+    "legal_acts_cited",
+    "text_source",
+    "_enrichment_error",
+}
+
+
+def decision_key(decision: dict) -> str:
+    """Stable key for matching index records to previously enriched records."""
+    return decision.get("gov_uk_path") or decision.get("url") or decision.get("case_reference", "")
+
+
+def merge_latest_index(input_db: dict, existing_db: dict) -> tuple[dict, int, int]:
+    """Use the latest index as the record set while preserving enrichment fields."""
+    existing_by_key = {
+        decision_key(decision): decision
+        for decision in existing_db.get("decisions", [])
+        if decision_key(decision)
+    }
+
+    merged_decisions = []
+    reused = 0
+    added = 0
+
+    for decision in input_db["decisions"]:
+        key = decision_key(decision)
+        existing = existing_by_key.get(key)
+        if existing:
+            merged = decision.copy()
+            for field in ENRICHMENT_FIELDS:
+                if field in existing:
+                    merged[field] = existing[field]
+            merged_decisions.append(merged)
+            reused += 1
+        else:
+            merged_decisions.append(decision)
+            added += 1
+
+    input_db["decisions"] = merged_decisions
+    input_db.setdefault("metadata", {})
+    input_db["metadata"]["previous_enriched_records_reused"] = reused
+    input_db["metadata"]["new_records_for_enrichment"] = added
+    return input_db, reused, added
 
 
 def fetch_decision_detail(gov_uk_path: str, session: requests.Session) -> dict | None:
@@ -205,11 +260,18 @@ def main():
     if args.output is None:
         args.output = os.path.join(data_dir, "tribunal_decisions_full.json")
 
-    # Load existing data - prefer output file if it exists (for resume)
+    # Load existing data - prefer output file if it exists (for resume), but merge
+    # it with the latest input index so newly published decisions are not skipped.
     if os.path.exists(args.output):
         print(f"Resuming from {args.output}...")
         with open(args.output, "r", encoding="utf-8") as f:
-            db = json.load(f)
+            existing_db = json.load(f)
+        print(f"Loading latest index from {args.input}...")
+        with open(args.input, "r", encoding="utf-8") as f:
+            input_db = json.load(f)
+        db, reused, added = merge_latest_index(input_db, existing_db)
+        print(f"Reused enriched records: {reused:,}")
+        print(f"New records to enrich: {added:,}")
     else:
         print(f"Loading from {args.input}...")
         with open(args.input, "r", encoding="utf-8") as f:
