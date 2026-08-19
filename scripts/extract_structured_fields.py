@@ -20,9 +20,25 @@ import json
 import os
 import re
 import time
+from collections import Counter
 from datetime import datetime
 
 VALID_REGION_CODES = {'LON', 'CHI', 'MAN', 'BIR', 'CAM', 'HAV', 'NS', 'TR', 'NT', 'VG', 'NAT', 'GB', 'RC', 'WAL'}
+
+# Sorted longest-first so alternation order is deterministic between runs and a
+# short code can never win over a longer one that starts with the same letters.
+REGION_CODE_ALTERNATION = '|'.join(sorted(VALID_REGION_CODES, key=lambda c: (-len(c), c)))
+
+# Derived purely from full_text, with no upstream source, so each run owns them
+# completely — see the clearing step in main().
+RECOMPUTED_FIELDS = (
+    'tribunal_members',
+    'presiding_judge',
+    'decision_outcome',
+    'financial_amounts',
+    'hearing_date',
+    'legal_acts_cited',
+)
 
 
 # --- Applicant / Respondent extraction ---
@@ -244,11 +260,11 @@ def extract_decision_outcome(text):
 
     # Look for "The tribunal determines/orders/decides"
     m = re.search(
-        r'(?:The )?[Tt]ribunal (?:determines|orders|decides|grants)\s+(.+?)(?:\.\s|\n\s*\n)',
+        r'(?:The )?[Tt]ribunal\s+(determines|orders|decides|grants)\s+(.+?)(?:\.\s|\n\s*\n)',
         text, re.DOTALL
     )
     if m:
-        outcome = "The tribunal " + m.group(0).strip()
+        outcome = "The tribunal " + m.group(1) + " " + m.group(2).strip()
         outcome = re.sub(r'\s+', ' ', outcome)
         if len(outcome) < 500:
             return outcome
@@ -267,9 +283,35 @@ def extract_decision_outcome(text):
     return None
 
 
+OUTCOME_NOISE_RE = re.compile(
+    r'^(?:the\s+)?(?:decision|determination)(?:\s+of\s+the\s+tribunal)?[\s.:_-]*$',
+    re.IGNORECASE,
+)
+
+
+def _is_meaningless_outcome(outcome):
+    """Whether an extracted outcome says nothing about the outcome.
+
+    PDF layout rules ("______"), bare section headings ("The Decision of the
+    Tribunal") and fragments with almost no letters were all being published as
+    if they were findings.
+    """
+    if not outcome:
+        return True
+    stripped = outcome.strip()
+    letters = sum(1 for c in stripped if c.isalpha())
+    if letters < 12:
+        return True
+    if letters / len(stripped) < 0.5:
+        return True
+    return bool(OUTCOME_NOISE_RE.match(stripped))
+
+
 def _truncate_outcome(outcome):
     """Truncate overly long decision outcomes at a sentence boundary."""
-    if not outcome or len(outcome) <= 200:
+    if _is_meaningless_outcome(outcome):
+        return None
+    if len(outcome) <= 200:
         return outcome
     # Find first sentence boundary after 200 chars
     idx = outcome.find('. ', 200)
@@ -286,7 +328,7 @@ def _truncate_outcome(outcome):
 def extract_financial_amounts(text):
     """Extract all £ amounts from the text."""
     amounts = []
-    for m in re.finditer(r'£([\d,]+(?:\.\d{2})?)', text):
+    for m in re.finditer(r'£\s*([\d,]+(?:\.\d{1,2})?)', text):
         raw = m.group(1).replace(',', '')
         try:
             val = float(raw)
@@ -325,43 +367,135 @@ def extract_hearing_date(text):
                 raw, re.IGNORECASE
             )
             if date_m:
-                return _normalise_date(date_m.group(1))
+                iso = _normalise_date(date_m.group(1))
+                if iso:
+                    return iso
             # Try DD/MM/YYYY or DD.MM.YYYY
-            date_m = re.match(r'(\d{1,2}[/.]\d{1,2}[/.]\d{2,4})', raw)
+            date_m = re.match(r'(\d{1,2})[/.](\d{1,2})[/.](\d{2,4})', raw)
             if date_m:
-                return date_m.group(1)
+                day, month, year = (int(g) for g in date_m.groups())
+                # UK convention is day-first. Two-digit years are this century;
+                # the corpus starts in 2001 so there is no 1900s ambiguity.
+                if year < 100:
+                    year += 2000
+                iso = _to_iso(year, month, day)
+                if iso:
+                    return iso
     return None
 
 
+MONTHS = {
+    'january': 1, 'february': 2, 'march': 3, 'april': 4, 'may': 5, 'june': 6,
+    'july': 7, 'august': 8, 'september': 9, 'october': 10, 'november': 11,
+    'december': 12,
+}
+
+
+def _to_iso(year, month, day):
+    """Return YYYY-MM-DD, or None if the date is not a real calendar date."""
+    try:
+        return datetime(year, month, day).strftime('%Y-%m-%d')
+    except ValueError:
+        return None
+
+
 def _normalise_date(raw):
-    """Normalise a date string, removing ordinal suffixes."""
-    return re.sub(r'(\d)(st|nd|rd|th)', r'\1', raw).strip()
+    """Convert '12th March 2021' to ISO 8601, or None if it can't be parsed.
+
+    Hearing dates were previously stored in whatever format the decision used,
+    which made the field unsortable and unparseable. Everything is ISO now, to
+    match decision_date.
+    """
+    cleaned = re.sub(r'(\d)\s*(st|nd|rd|th)', r'\1', raw, flags=re.IGNORECASE).strip()
+    m = re.match(r'(\d{1,2})\s*([A-Za-z]+)\s+(\d{4})', cleaned)
+    if not m:
+        return None
+    month = MONTHS.get(m.group(2).lower())
+    if not month:
+        return None
+    return _to_iso(int(m.group(3)), month, int(m.group(1)))
 
 
 # --- Legal acts cited ---
 
+# Each entry is (pattern, template, valid_years).
+#
+# Two things matter here. First, the shorter patterns must not match inside the
+# longer ones — "Leasehold Reform Act" is a substring of "Commonhold and Leasehold
+# Reform Act", so without the lookbehind every citation of the 2002 Act also
+# invented a "Leasehold Reform Act 2002", which is not an Act that exists.
+#
+# Second, OCR of scanned decisions routinely corrupts the year (1985 -> 1085,
+# 2004 -> 2994). Since this index is cited as legal reference, an unrecognised
+# year is dropped rather than published. `None` means any plausible year is
+# accepted — used where the real world genuinely has many (procedure rules).
 LEGAL_ACTS = [
-    (r'Landlord and Tenant Act\s+(\d{4})', 'Landlord and Tenant Act {}'),
-    (r'Leasehold Reform[,\s]+Housing and Urban Development Act\s+(\d{4})', 'Leasehold Reform, Housing and Urban Development Act {}'),
-    (r'Leasehold Reform Act\s+(\d{4})', 'Leasehold Reform Act {}'),
-    (r'Housing Act\s+(\d{4})', 'Housing Act {}'),
-    (r'Housing and Planning Act\s+(\d{4})', 'Housing and Planning Act {}'),
-    (r'Commonhold and Leasehold Reform Act\s+(\d{4})', 'Commonhold and Leasehold Reform Act {}'),
-    (r'Rent Act\s+(\d{4})', 'Rent Act {}'),
-    (r'Building Safety Act\s+(\d{4})', 'Building Safety Act {}'),
-    (r'Equality Act\s+(\d{4})', 'Equality Act {}'),
-    (r'Protection from Eviction Act\s+(\d{4})', 'Protection from Eviction Act {}'),
-    (r'Tribunal Procedure[^.]{0,50}Rules\s+(\d{4})', 'Tribunal Procedure Rules {}'),
+    (r'Landlord and Tenant Act\s+(\d{4})',
+     'Landlord and Tenant Act {}',
+     {1709, 1730, 1851, 1927, 1954, 1962, 1985, 1987, 1988}),
+    (r'Leasehold Reform[,\s]+Housing and Urban Development Act\s+(\d{4})',
+     'Leasehold Reform, Housing and Urban Development Act {}',
+     {1993}),
+    (r'(?<!Commonhold and )Leasehold Reform Act\s+(\d{4})',
+     'Leasehold Reform Act {}',
+     {1967, 1979}),
+    (r'Local Government and Housing Act\s+(\d{4})',
+     'Local Government and Housing Act {}',
+     {1989}),
+    (r'(?<!Local Government and )Housing Act\s+(\d{4})',
+     'Housing Act {}',
+     {1980, 1985, 1988, 1996, 2004}),
+    (r'Housing and Planning Act\s+(\d{4})',
+     'Housing and Planning Act {}',
+     {1986, 2016}),
+    (r'Commonhold and Leasehold Reform Act\s+(\d{4})',
+     'Commonhold and Leasehold Reform Act {}',
+     {2002}),
+    (r'Rent Act\s+(\d{4})',
+     'Rent Act {}',
+     {1965, 1968, 1977}),
+    (r'Building Safety Act\s+(\d{4})',
+     'Building Safety Act {}',
+     {2022}),
+    (r'Equality Act\s+(\d{4})',
+     'Equality Act {}',
+     {2006, 2010}),
+    (r'Protection from Eviction Act\s+(\d{4})',
+     'Protection from Eviction Act {}',
+     {1977}),
+    (r'Tenant Fees Act\s+(\d{4})',
+     'Tenant Fees Act {}',
+     {2019}),
+    (r'Leasehold Reform \(Ground Rent\) Act\s+(\d{4})',
+     'Leasehold Reform (Ground Rent) Act {}',
+     {2022}),
+    (r'Tribunal Procedure[^.]{0,50}Rules\s+(\d{4})',
+     'Tribunal Procedure Rules {}',
+     None),
 ]
+
+# Years rejected as OCR corruption, for reporting at the end of a run.
+rejected_act_years = Counter()
 
 
 def extract_legal_acts(text):
-    """Extract all legal acts cited in the text."""
+    """Extract all legal acts cited in the text.
+
+    Years that don't correspond to a real Act are discarded — see LEGAL_ACTS.
+    """
     acts = []
     seen = set()
-    for pattern, template in LEGAL_ACTS:
+    for pattern, template, valid_years in LEGAL_ACTS:
         for m in re.finditer(pattern, text, re.IGNORECASE):
             year = m.group(1)
+            if valid_years is None:
+                # No fixed list, but the year still has to be plausible.
+                if not (1700 <= int(year) <= datetime.now().year + 1):
+                    rejected_act_years[template.format(year)] += 1
+                    continue
+            elif int(year) not in valid_years:
+                rejected_act_years[template.format(year)] += 1
+                continue
             act = template.format(year)
             if act not in seen:
                 seen.add(act)
@@ -427,7 +561,15 @@ def fix_decision_dates(decisions):
         if (corrected_year, dec_month, dec_day) > (pub_year, pub_month, pub_day):
             corrected_year = pub_year - 1
 
-        new_date = f"{corrected_year:04d}-{m.group(2)}-{m.group(3)}"
+        # The day and month come from the original string, so the corrected
+        # date has to be checked against the new year — 2925-02-29 would
+        # otherwise become 2024-02-29 in a non-leap year.
+        new_date = _to_iso(corrected_year, dec_month, dec_day)
+        if new_date is None:
+            print(f"  Skipped date: {date_str} is not a valid calendar date in "
+                  f"{corrected_year}  [{decision.get('case_reference', 'unknown')}]")
+            continue
+
         ref = decision.get("case_reference", decision.get("title", "unknown"))
         print(f"  Fixed date: {date_str} -> {new_date}  [{ref}]")
         decision["decision_date"] = new_date
@@ -441,7 +583,7 @@ def fix_decision_dates(decisions):
 def fix_missing_region_codes(decisions):
     """Fix missing and invalid region codes by searching case_reference, property_address, and full_text."""
     ref_pattern = re.compile(
-        r'\b(' + '|'.join(VALID_REGION_CODES) + r')/'
+        r'\b(' + REGION_CODE_ALTERNATION + r')/'
     )
 
     fuzzy_map = {
@@ -492,7 +634,7 @@ def fix_missing_region_codes(decisions):
             decision['region_code'] = found
             if not case_ref and text:
                 ref_m = re.search(
-                    r'(' + '|'.join(VALID_REGION_CODES) + r')/\S+',
+                    r'(' + REGION_CODE_ALTERNATION + r')/\S+',
                     text[:500]
                 )
                 if ref_m:
@@ -687,6 +829,13 @@ def main():
 
         fields = extract_all_fields(decision)
 
+        # These are recomputed from scratch on every run. If extraction finds
+        # nothing this time, the old value must go — otherwise output from a
+        # previous, buggier version of this script survives indefinitely.
+        for key in RECOMPUTED_FIELDS:
+            if key not in fields:
+                decision.pop(key, None)
+
         # Apply extracted fields
         for key, value in fields.items():
             if key == "applicant" and not decision.get("applicant"):
@@ -725,6 +874,14 @@ def main():
     print(f"  Removed {bad_app} garbage applicant value(s)")
     print(f"  Removed {bad_resp} garbage respondent value(s)")
     print(f"  Removed {bad_amts} extreme financial amount(s) (>£50M)")
+
+    if rejected_act_years:
+        total_rejected = sum(rejected_act_years.values())
+        print(f"\nDropped {total_rejected:,} legal-act citation(s) with unrecognised years "
+              f"(usually OCR corruption). Most frequent:")
+        for act, count in rejected_act_years.most_common(10):
+            print(f"  {count:6,}  {act}")
+        print("  If any of these are real Acts, add the year to LEGAL_ACTS.")
 
     # Post-extraction stats
     post_stats = {

@@ -62,12 +62,30 @@ def download_pdf(url, dest_path, session):
                 continue
             resp.raise_for_status()
 
+            expected = resp.headers.get("Content-Length")
             os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-            with open(dest_path, "wb") as f:
+            # Download to a temp path and rename, so an interrupted transfer
+            # never leaves a half-file that later runs mistake for a complete
+            # (but unreadable, "needs OCR") download.
+            tmp_path = dest_path + ".part"
+            written = 0
+            with open(tmp_path, "wb") as f:
                 for chunk in resp.iter_content(chunk_size=8192):
                     f.write(chunk)
+                    written += len(chunk)
+            if expected and written != int(expected):
+                print(f"    Truncated download ({written} of {expected} bytes): {url}")
+                os.unlink(tmp_path)
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(RETRY_DELAY * (attempt + 1))
+                    continue
+                return False
+            os.replace(tmp_path, dest_path)
             return True
-        except requests.RequestException:
+        except (requests.RequestException, OSError) as e:
+            # OSError too: at 3-9 GB of PDFs, a full disk is a realistic failure
+            # and used to propagate out of main() and kill the whole run.
+            print(f"    Download failed ({e.__class__.__name__}): {url}")
             if attempt < MAX_RETRIES - 1:
                 time.sleep(RETRY_DELAY * (attempt + 1))
             else:
@@ -88,7 +106,11 @@ def extract_text_from_pdf(pdf_path):
                     text_parts.append(page_text)
         full_text = "\n\n".join(text_parts)
         return full_text, page_count
-    except Exception:
+    except Exception as e:
+        # Encrypted, corrupt and truncated PDFs all land here. Saying so beats
+        # reporting every one of them as a scanned document needing OCR.
+        print(f"    PDF text extraction failed ({e.__class__.__name__}): "
+              f"{os.path.basename(pdf_path)}")
         return "", 0
 
 
@@ -124,11 +146,17 @@ def process_decision(decision, pdf_dir, session, manifest, manifest_index):
         filename = pdf_filename_from_url(url)
         dest = os.path.join(pdf_dir, filename)
 
-        # Check manifest for already-downloaded PDFs
+        # Check manifest for already-downloaded PDFs. The manifest records what
+        # was downloaded, not the text — the text belongs in the decision record,
+        # and storing both put 12 MB of exact duplicates into version control.
         if url in manifest_index and os.path.exists(manifest_index[url].get("local_path", "")):
             entry = manifest_index[url]
             if entry.get("text"):
                 all_text.append(entry["text"])
+            elif not entry.get("ocr_required"):
+                text, _ = extract_text_from_pdf(manifest_index[url]["local_path"])
+                if text.strip():
+                    all_text.append(text)
             pdf_entries.append(entry)
             with progress_lock:
                 stats["skipped"] += 1
@@ -174,8 +202,6 @@ def process_decision(decision, pdf_dir, session, manifest, manifest_index):
             "ocr_required": ocr_needed,
             "downloaded_at": datetime.now(timezone.utc).isoformat(),
         }
-        if text.strip():
-            entry["text"] = text
         pdf_entries.append(entry)
 
     combined_text = "\n\n".join(all_text) if all_text else ""
@@ -219,12 +245,7 @@ def main():
         default=0,
         help="Only process N decisions (for testing)",
     )
-    parser.add_argument(
-        "--concurrency", "-c",
-        type=int,
-        default=4,
-        help="Number of concurrent downloads (default: 4)",
-    )
+
     args = parser.parse_args()
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
@@ -273,7 +294,6 @@ def main():
     print(f"Target: {len(targets):,} {mode}")
     print(f"Total PDFs to process: {total_pdfs:,}")
     print(f"PDF directory: {pdf_dir}")
-    print(f"Concurrency: {args.concurrency} threads")
     print()
 
     if not targets:
@@ -296,11 +316,20 @@ def main():
         if result is None:
             continue
 
-        # Update manifest
+        # Update manifest. Replace in place when the URL is already known —
+        # data/pdfs/ is gitignored, so a fresh clone re-downloads and re-extracts
+        # every PDF, and those refreshed results were previously thrown away.
         for entry in result["pdf_entries"]:
-            if entry.get("url") and entry["url"] not in manifest_index:
+            url = entry.get("url")
+            if not url:
+                continue
+            existing = manifest_index.get(url)
+            if existing is None:
                 manifest["pdfs"].append(entry)
-                manifest_index[entry["url"]] = entry
+                manifest_index[url] = entry
+            elif existing is not entry:
+                existing.clear()
+                existing.update(entry)
 
         # Fill in full_text if decision was missing it
         if not decision.get("full_text") and result["combined_text"]:
@@ -327,7 +356,11 @@ def main():
         # Save periodically
         if batch_count % SAVE_EVERY == 0:
             save_manifest(manifest, manifest_path)
-            print(f"  [Saved manifest at {batch_count:,}]")
+            tmp_path = args.output + ".tmp"
+            with open(tmp_path, "w", encoding="utf-8") as f:
+                json.dump(db, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, args.output)
+            print(f"  [Saved manifest and decisions at {batch_count:,}]")
 
     # Final saves
     manifest["metadata"] = {

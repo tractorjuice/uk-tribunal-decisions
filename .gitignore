@@ -1,6 +1,22 @@
-# Downloaded PDFs (3-9GB)
+# Downloaded PDFs (3-9GB England, 150-250MB Wales)
 data/pdfs/
 data/wales_pdfs/
 
-# Python bytecode cache
+# Atomic-write temp files. An interrupted enrichment leaves a 345MB .tmp
+# behind, which is otherwise untracked and easy to commit by accident.
+*.tmp
+*.part
+
+# Python
 __pycache__/
+*.pyc
+.venv/
+venv/
+
+# Editors and OS
+.DS_Store
+.idea/
+.vscode/
+
+# Local environment
+.env
