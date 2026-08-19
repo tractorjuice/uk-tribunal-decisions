@@ -1,1 +1,17 @@
+# The enriched corpus is far too large for a normal blob.
 data/tribunal_decisions_full.json filter=lfs diff=lfs merge=lfs -text
+
+# Consistent line endings regardless of who checks out.
+* text=auto eol=lf
+
+# Generated output. Marking it keeps refresh commits — which rewrite tens of
+# thousands of lines of machine-written JSON — from burying real changes in
+# review, and stops GitHub counting generated JSON as the project's language.
+docs/data/decisions.json    linguist-generated=true -diff
+docs/data/search/*.json     linguist-generated=true -diff
+docs/browse/**              linguist-generated=true -diff
+docs/sitemap.xml            linguist-generated=true -diff
+data/tribunal_decisions.json      linguist-generated=true -diff
+data/wales_tribunal_decisions.json linguist-generated=true -diff
+data/pdf_manifest.json            linguist-generated=true -diff
+data/wales_pdf_manifest.json      linguist-generated=true -diff
