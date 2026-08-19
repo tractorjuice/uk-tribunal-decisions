@@ -1,6 +1,6 @@
 # UK Residential Property Tribunal Decisions
 
-> A searchable, open-data database of 17,262+ residential property tribunal decisions from England (First-tier Tribunal, Property Chamber) and Wales (Residential Property Tribunal Wales). Covers leasehold disputes, rents, park homes, housing conditions, enfranchisement, and related matters from 2001 to the present.
+> A searchable, open-data database of residential property tribunal decisions from England (First-tier Tribunal, Property Chamber) and Wales (Residential Property Tribunal Wales). Covers leasehold disputes, rents, park homes, housing conditions, enfranchisement, and related matters from 2001 to the present. Exact counts are in the Coverage section below.
 
 The site is a static, client-side search interface (vanilla HTML/CSS/JS, no framework) hosted on GitHub Pages. All data is precomputed into a single JSON file which the frontend fetches and queries in the browser. Decisions are sourced from GOV.UK (England) and residentialpropertytribunal.gov.wales, and are licensed under the Open Government Licence v3.0.
 
@@ -8,7 +8,7 @@ This site is not affiliated with or endorsed by GOV.UK, HMCTS, or the Welsh Gove
 
 ## Core data
 
-- [decisions.json](https://tractorjuice.github.io/uk-tribunal-decisions/data/decisions.json): Complete dataset served to the frontend. Top-level keys are `stats` (precomputed aggregates — total counts, categories, sub-categories, regions, year distribution, category hierarchy, field coverage, legal act frequencies, date range) and `decisions` (array of decision records with `case_reference`, `property_address`, `region_code`, `category`, `sub_category`, `decision_date`, `url`, `data_source`, and — where available — `applicant`, `respondent`, `tribunal_members`, `presiding_judge`, `decision_outcome`, `financial_amounts`, `hearing_date`, `legal_acts_cited`, and `full_text`).
+- [decisions.json](https://tractorjuice.github.io/uk-tribunal-decisions/data/decisions.json): The record index the site loads. Top-level keys are `stats` (precomputed aggregates) and `decisions` (array of records). Field list is in the Coverage section. Full decision text is NOT in this file — see the search index note below.
 - [Source repository (GitHub)](https://github.com/tractorjuice/uk-tribunal-decisions): Scraping pipeline, extraction scripts, and raw data files. See `README.md` and `CLAUDE.md` for pipeline details.
 
 ## Pages
@@ -19,51 +19,52 @@ This site is not affiliated with or endorsed by GOV.UK, HMCTS, or the Welsh Gove
 
 ## Coverage
 
-- **Total decisions:** 17,262 (England 16,486, Wales 776)
-- **Date range:** 2001-05-28 to 2026-03-30
-- **Full-text coverage:** 99.8% England, 92.9% Wales
-- **Extracted legal acts:** 96.3% England, 100% Wales
+<!-- BEGIN:generated-stats -->
+- **Total decisions:** 17,459
+- **Date range:** 2001-05-28 to 2026-04-30
+- **Last updated:** 2026-08-19
 
-### Categories (decision counts)
+### Categories
 
-- Leasehold Disputes (Management): 6,677
-- Rents: 5,203
-- Housing Act 2004 and Housing and Planning Act 2016: 2,621
-- Leasehold Enfranchisement and Extension: 971
-- Park Homes: 703
-- Wales - Leasehold Valuation: 350
+- Leasehold Disputes Management: 6,733
+- Rents: 5,296
+- Housing Act 2004 And Housing And Planning Act 2016: 2,643
+- Leasehold Enfranchisement And Extension: 976
+- Park Homes: 710
+- Wales - Leasehold Valuation: 353
 - Wales - Rent Assessment: 265
-- Wales - Residential Property: 161
-- Right To Buy: 93
-- Tenant Fees Act: 85
-- Electronic Communications Code: 48
-- Building Safety Act: 45
+- Wales - Residential Property: 162
+- Right To Buy: 94
+- Tenant Fees Act: 86
+- Electronic Communications Code: 54
+- Building Safety Act: 47
 - Tenant Associations: 35
 - Leasehold Reform Ground Rent Act 2022: 5
 
-### Regions (decision counts)
+### Tribunal regions
 
-- LON (London): 7,633
-- CHI (Chichester): 2,851
-- MAN (Manchester): 1,974
-- BIR (Birmingham): 1,789
-- CAM (Cambridge): 1,614
-- WAL (Wales): 776
-- HAV (Havant): 527
-- Other / national (NS, VG, TR, NT, NAT, GB, RC, Unknown): ~100
+- LON (London): 7,678
+- CHI (Chichester (South East)): 2,851
+- MAN (Manchester (North West)): 2,025
+- BIR (Birmingham (Midlands)): 1,817
+- CAM (Cambridge (East)): 1,615
+- WAL (Wales): 780
+- HAV (Havant (Southern)): 594
+- Unknown (Unknown): 40
+- NS (NS): 29
+- VG (VG): 10
+- TR (TR): 6
+- NT (NT): 5
+- NAT (National): 3
+- GB (GB): 3
+- RC (RC): 3
 
-### Most-cited legal acts
+### Fields on each record in decisions.json
 
-- Landlord and Tenant Act 1985 (6,957)
-- Tribunal Procedure Rules 2013 (6,579)
-- Rent Act 1977 (3,131)
-- Housing Act 1988 (3,000)
-- Leasehold Reform Act 2002 (2,856)
-- Housing Act 2004 (2,751)
-- Commonhold and Leasehold Reform Act 2002 (2,718)
-- Housing and Planning Act 2016 (1,773)
-- Leasehold Reform, Housing and Urban Development Act 1993 (1,031)
-- Landlord and Tenant Act 1987 (955)
+`case_reference`, `property_address`, `region_code`, `description`, `category_label`, `sub_category_label`, `decision_date`, `decision_date_approximate`, `url`, `applicant`, `respondent`, `presiding_judge`, `decision_outcome`
+
+Full decision text is *not* in decisions.json. It is indexed separately at `/data/search/<prefix>.json` as an inverted index: keys are terms, values are base-36 delta-encoded document ids indexing into the `decisions` array. `/data/search/shards.json` lists the available prefixes.
+<!-- END:generated-stats -->
 
 ## Upstream sources
 
