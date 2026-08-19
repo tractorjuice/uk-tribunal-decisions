@@ -56,10 +56,12 @@ jobs:
 
       - name: Scrape Wales decisions
         if: inputs.skip_wales != true
-        # --skip-pdfs keeps the runner's disk and time bounded. PDF text for
-        # Wales is already in the committed dataset and is carried forward by
-        # the merge; a full PDF pass is a manual, occasional job.
-        run: python3 scripts/scrape_wales_decisions.py --skip-pdfs
+        # PDFs included: Wales publishes decisions only as PDFs, so skipping
+        # this leaves every new Wales decision with no full_text and therefore
+        # missing from the search index. The work is bounded — the PDF phase
+        # only targets records that have no text yet, which is a handful per
+        # week, and downloads land in a gitignored directory.
+        run: python3 scripts/scrape_wales_decisions.py
 
       - name: Build site data, hub pages and sitemap
         run: python3 scripts/build_site_data.py

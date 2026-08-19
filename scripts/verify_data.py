@@ -17,7 +17,7 @@ import json
 import re
 import sys
 from collections import Counter
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -82,10 +82,22 @@ def verify_records(data, report):
                   if d.get("decision_date") and not ISO_DATE.match(d["decision_date"])]
     report.check(not bad_format, f"all decision dates are ISO-8601 ({len(bad_format)} malformed)")
 
-    future = [d["decision_date"] for d in decisions
-              if d.get("decision_date", "") > today]
-    report.check(not future,
-                 f"no decision dates in the future ({len(future)} found: {sorted(set(future))[:5]})")
+    # Market rent determinations are legitimately forward-dated: the tribunal
+    # sets a rent that takes effect from a date after publication. So a date a
+    # few weeks or months ahead is normal, and only a wildly future one means
+    # corruption — the defects this check exists for were 2042, 2205 and 3034.
+    horizon = (date.today() + timedelta(days=365)).isoformat()
+    absurd = sorted({d["decision_date"] for d in decisions
+                     if d.get("decision_date", "") > horizon})
+    report.check(not absurd,
+                 f"no decision dates more than a year ahead "
+                 f"({len(absurd)} found: {absurd[:5]})")
+
+    near_future = sorted({d["decision_date"] for d in decisions
+                          if today < d.get("decision_date", "") <= horizon})
+    report.warn(len(near_future) <= 25,
+                f"{len(near_future)} forward-dated decisions "
+                f"(expected for market rent determinations): {near_future[:5]}")
 
     too_old = [d["decision_date"] for d in decisions
                if d.get("decision_date") and d["decision_date"] < "1990-01-01"]
