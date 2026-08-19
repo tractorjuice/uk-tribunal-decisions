@@ -30,6 +30,7 @@ import requests
 CONTENT_API = "https://www.gov.uk/api/content"
 MAX_RETRIES = 3
 RETRY_DELAY = 2
+MAX_RATE_LIMIT_WAITS = 8  # 429s do not consume MAX_RETRIES; bound them separately
 SAVE_EVERY = 100  # Save progress every N decisions
 REQUEST_DELAY = 0.15  # Seconds between requests per thread
 
@@ -55,6 +56,22 @@ ENRICHMENT_FIELDS = {
     "_enrichment_error",
 }
 
+# Fields the raw index also carries, but which extract_structured_fields.py
+# repairs afterwards: it fixes typo'd years (3034 -> 2034), backfills region
+# codes from the case reference, and recovers missing references from the text.
+#
+# Without this, re-running enrichment restored the raw index values and silently
+# undid every one of those repairs — several thousand of them — leaving the fix
+# to survive only if stage 3 happened to be re-run afterwards.
+#
+# A repaired value wins only when it is non-empty, so a newly-populated upstream
+# value is still picked up.
+REPAIRED_FIELDS = {
+    "decision_date",
+    "region_code",
+    "case_reference",
+}
+
 
 def decision_key(decision: dict) -> str:
     """Stable key for matching index records to previously enriched records."""
@@ -72,14 +89,19 @@ def merge_latest_index(input_db: dict, existing_db: dict) -> tuple[dict, int, in
     merged_decisions = []
     reused = 0
     added = 0
+    seen_keys = set()
 
     for decision in input_db["decisions"]:
         key = decision_key(decision)
+        seen_keys.add(key)
         existing = existing_by_key.get(key)
         if existing:
             merged = decision.copy()
             for field in ENRICHMENT_FIELDS:
                 if field in existing:
+                    merged[field] = existing[field]
+            for field in REPAIRED_FIELDS:
+                if existing.get(field):
                     merged[field] = existing[field]
             merged_decisions.append(merged)
             reused += 1
@@ -87,10 +109,27 @@ def merge_latest_index(input_db: dict, existing_db: dict) -> tuple[dict, int, in
             merged_decisions.append(decision)
             added += 1
 
+    # Records that were enriched before but are no longer in the index — upstream
+    # re-slugged or unpublished them. Dropping them would discard their full_text
+    # for good, including text recovered from PDFs that are not in version
+    # control. Keep them and let the operator decide.
+    retired = [
+        existing_by_key[key]
+        for key in existing_by_key
+        if key not in seen_keys
+    ]
+    if retired:
+        print(f"  {len(retired)} previously enriched record(s) are no longer in the "
+              f"index — keeping them (marked _retired_from_index)")
+        for decision in retired:
+            decision["_retired_from_index"] = True
+            merged_decisions.append(decision)
+
     input_db["decisions"] = merged_decisions
     input_db.setdefault("metadata", {})
     input_db["metadata"]["previous_enriched_records_reused"] = reused
     input_db["metadata"]["new_records_for_enrichment"] = added
+    input_db["metadata"]["retired_from_index"] = len(retired)
     return input_db, reused, added
 
 
@@ -98,21 +137,39 @@ def fetch_decision_detail(gov_uk_path: str, session: requests.Session) -> dict |
     """Fetch full decision details from the GOV.UK content API."""
     url = CONTENT_API + gov_uk_path
 
-    for attempt in range(MAX_RETRIES):
+    attempt = 0
+    rate_limit_waits = 0
+    while attempt < MAX_RETRIES:
         try:
             resp = session.get(url, timeout=30)
             if resp.status_code == 404:
                 return None
             if resp.status_code == 429:
-                wait = RETRY_DELAY * (attempt + 2) * 3
-                time.sleep(wait)
+                # Being rate limited is not a failure of this request, so it
+                # does not spend an attempt. Honour Retry-After when given.
+                if rate_limit_waits >= MAX_RATE_LIMIT_WAITS:
+                    print(f"    Giving up after {rate_limit_waits} rate-limit waits: {url}")
+                    return None
+                retry_after = resp.headers.get("Retry-After")
+                try:
+                    wait = int(retry_after) if retry_after else RETRY_DELAY * (rate_limit_waits + 2) * 3
+                except ValueError:
+                    wait = RETRY_DELAY * (rate_limit_waits + 2) * 3
+                rate_limit_waits += 1
+                time.sleep(min(wait, 300))
                 continue
+            if 400 <= resp.status_code < 500:
+                # Permanent client errors (403, 410) will not improve on retry.
+                print(f"    HTTP {resp.status_code}: {url}")
+                return None
             resp.raise_for_status()
             return resp.json()
         except (requests.RequestException, json.JSONDecodeError) as e:
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAY * (attempt + 1))
+            attempt += 1
+            if attempt < MAX_RETRIES:
+                time.sleep(RETRY_DELAY * attempt)
             else:
+                print(f"    Failed after {MAX_RETRIES} attempts: {url}: {e}")
                 return None
     return None
 
@@ -171,55 +228,52 @@ def extract_parties(text: str) -> dict:
     return parties
 
 
-def process_decision(idx: int, decision: dict, session: requests.Session) -> dict:
-    """Fetch and enrich a single decision."""
-    path = decision.get("gov_uk_path", "")
-    if not path:
-        return decision
+def is_pdf_attachment(att: dict) -> bool:
+    """Whether an attachment is actually a PDF.
 
-    # Skip if already enriched
-    if decision.get("full_text"):
-        with progress_lock:
-            stats["skipped"] += 1
-        return decision
+    GOV.UK decisions also carry .doc, .xlsx and .csv attachments. Feeding those
+    to the PDF fetcher makes pdfplumber fail on every one and report them as
+    scanned documents needing OCR.
+    """
+    if att.get("content_type") == "application/pdf":
+        return True
+    return att.get("url", "").lower().split("?")[0].endswith(".pdf")
 
+
+def process_decision(path: str, session: requests.Session) -> dict:
+    """Fetch a single decision and return the fields to apply to it.
+
+    Returns only new field values — it does not touch the shared decision dict.
+    Workers used to mutate those dicts in place while the main thread was
+    serialising the same structure to disk, which can abort a save (and the run)
+    with "dictionary changed size during iteration".
+    """
     time.sleep(REQUEST_DELAY)
 
     detail = fetch_decision_detail(path, session)
     if detail is None:
-        with progress_lock:
-            stats["errors"] += 1
-        decision["_enrichment_error"] = True
-        return decision
+        return {"_status": "error", "_enrichment_error": True}
 
-    # Extract data
     details_obj = detail.get("details", {})
     metadata = details_obj.get("metadata", {})
 
     full_text = metadata.get("hidden_indexable_content", "")
     attachments = extract_attachments(detail)
-    content_id = detail.get("content_id", "")
 
-    # Parse parties from full text
+    fields = {
+        "_status": "fetched",
+        "content_id": detail.get("content_id", ""),
+        "full_text": full_text,
+        "attachments": attachments,
+        "pdf_urls": [a["url"] for a in attachments if a["url"] and is_pdf_attachment(a)],
+    }
+
     parties = extract_parties(full_text) if full_text else {}
+    for key in ("applicant", "respondent", "application_type"):
+        if parties.get(key):
+            fields[key] = parties[key]
 
-    # Enrich the decision
-    decision["content_id"] = content_id
-    decision["full_text"] = full_text
-    decision["attachments"] = attachments
-    decision["pdf_urls"] = [a["url"] for a in attachments if a["url"]]
-
-    if parties.get("applicant"):
-        decision["applicant"] = parties["applicant"]
-    if parties.get("respondent"):
-        decision["respondent"] = parties["respondent"]
-    if parties.get("application_type"):
-        decision["application_type"] = parties["application_type"]
-
-    with progress_lock:
-        stats["fetched"] += 1
-
-    return decision
+    return fields
 
 
 def save_progress(db: dict, output_path: str):
@@ -300,27 +354,38 @@ def main():
         "Accept": "application/json",
     })
 
+    db.setdefault("metadata", {})
+
     start_time = time.time()
     batch_count = 0
 
-    with ThreadPoolExecutor(max_workers=args.concurrency) as executor:
+    interrupted = False
+    executor = ThreadPoolExecutor(max_workers=args.concurrency)
+    try:
         futures = {}
         for idx, decision in enumerate(decisions):
             if decision.get("full_text"):
                 continue
-            future = executor.submit(process_decision, idx, decision, session)
+            path = decision.get("gov_uk_path", "")
+            if not path:
+                continue
+            future = executor.submit(process_decision, path, session)
             futures[future] = idx
 
         for future in as_completed(futures):
             idx = futures[future]
+            # Only the main thread writes to `decisions`, so a save can never
+            # race a worker.
             try:
-                decisions[idx] = future.result()
+                fields = future.result()
+                status = fields.pop("_status", "fetched")
+                decisions[idx].update(fields)
+                stats["fetched" if status == "fetched" else "errors"] += 1
             except Exception as e:
                 print(f"  Exception processing decision {idx}: {e}")
                 stats["errors"] += 1
 
             batch_count += 1
-            done = stats["fetched"] + stats["errors"] + stats["skipped"]
 
             if batch_count % 25 == 0:
                 elapsed = time.time() - start_time
@@ -342,12 +407,30 @@ def main():
                 save_progress(db, args.output)
                 print(f"  [Saved progress at {batch_count:,}]")
 
+    except KeyboardInterrupt:
+        # Without cancel_futures every queued request still runs before the
+        # interrupt propagates — hours of it — so users reach for kill -9 and
+        # lose everything since the last checkpoint.
+        interrupted = True
+        print("\nInterrupted — cancelling queued requests and saving progress...")
+    finally:
+        executor.shutdown(wait=True, cancel_futures=True)
+
     # Final save
-    db["metadata"]["enriched_at"] = datetime.now(timezone.utc).isoformat()
-    db["metadata"]["enrichment_complete"] = True
-    db["metadata"].pop("enrichment_progress", None)
-    db["metadata"].pop("last_enrichment_save", None)
+    db["metadata"]["last_enrichment_save"] = datetime.now(timezone.utc).isoformat()
+    if interrupted:
+        db["metadata"]["enrichment_progress"] = f"{batch_count}/{remaining}"
+        db["metadata"]["enrichment_complete"] = False
+    else:
+        db["metadata"]["enriched_at"] = datetime.now(timezone.utc).isoformat()
+        db["metadata"]["enrichment_complete"] = True
+        db["metadata"].pop("enrichment_progress", None)
+        db["metadata"].pop("last_enrichment_save", None)
     save_progress(db, args.output)
+
+    if interrupted:
+        print(f"Saved {batch_count:,} of {remaining:,}. Re-run to resume.")
+        return 1
 
     elapsed = time.time() - start_time
     file_size = os.path.getsize(args.output) / (1024 * 1024)
@@ -375,4 +458,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)
