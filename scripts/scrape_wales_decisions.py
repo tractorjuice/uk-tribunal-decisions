@@ -79,21 +79,21 @@ DECISION_LINK_RE = re.compile(
     re.IGNORECASE | re.DOTALL,
 )
 
-# List page: fallback for decision links without case references
-DECISION_LINK_FALLBACK_RE = re.compile(
-    r'<a\s+href="(/[^"]+)"[^>]*>\s*(.+?)\s*</a>',
-    re.IGNORECASE | re.DOTALL,
-)
-
 # Detail page: metadata in <strong>Label:</strong> Value patterns within body field
 DETAIL_FIELD_RE = re.compile(
     r'<strong>\s*(.+?)\s*:?\s*</strong>\s*(?:&nbsp;|\s)*(.+?)(?=<strong>|</p>|</span>|<br)',
     re.IGNORECASE | re.DOTALL,
 )
 
-# Body field container
+# Body field container.
+#
+# Greedy rather than lazy: the lazy form stopped at the first nested </div>,
+# which on any page with markup inside the body captured a fragment and lost
+# the Act / Case type / Property fields that followed it. Over-capturing is
+# safe here because DETAIL_FIELD_RE only matches the <strong>Label:</strong>
+# pairs it is looking for.
 BODY_FIELD_RE = re.compile(
-    r'field--name-body[^>]*>(.*?)</div>',
+    r'field--name-body[^>]*>(.*)</div>',
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -101,15 +101,6 @@ BODY_FIELD_RE = re.compile(
 PDF_LINK_RE = re.compile(
     r'<a\s+href="(/sites/residentialproperty/files/[^"]+\.pdf)"',
     re.IGNORECASE,
-)
-
-# Case reference pattern for validation
-CASE_REF_RE = re.compile(r'^(RAC|LVT|RPT)/\d{4}/\d{2}/\d{2}$')
-
-# Content area: restrict link matching to the main content area
-CONTENT_AREA_RE = re.compile(
-    r'<(?:div|section)[^>]*class="[^"]*(?:view-content|field--name-body|content)[^"]*"[^>]*>(.*?)</(?:div|section)>',
-    re.IGNORECASE | re.DOTALL,
 )
 
 
@@ -141,6 +132,10 @@ def fetch_page(url, session, delay=0):
                 time.sleep(wait)
                 continue
             resp.raise_for_status()
+            if not resp.encoding or resp.encoding.lower() == "iso-8859-1":
+                # requests defaults text/html to ISO-8859-1 when the server
+                # omits a charset, which corrupts Welsh diacritics.
+                resp.encoding = resp.apparent_encoding or "utf-8"
             return resp.text
         except requests.RequestException as e:
             if attempt < MAX_RETRIES - 1:
@@ -220,7 +215,10 @@ def scrape_list_pages(session, delay):
         page_decisions = parse_list_page(html, type_id)
         new_count = 0
         for d in page_decisions:
-            key = d["case_reference"] or d["slug"]
+            # Dedup on slug, not case_reference: combined references are split
+            # on "&" above, so two distinct decisions can share the leading
+            # reference and one would be silently dropped.
+            key = d["slug"]
             if key not in seen_refs:
                 seen_refs.add(key)
                 all_decisions.append(d)
@@ -273,9 +271,14 @@ def slugify_case_type(case_type):
 
 
 def decision_date_from_ref(case_ref):
-    """Extract decision date from case reference MM/YY portion.
+    """Derive an approximate decision date from the case reference MM/YY portion.
 
-    Case references like RAC/0013/09/24 -> month=09, year=24 -> 2024-09-01
+    Case references like RAC/0013/09/24 -> month=09, year=24 -> 2024-09-01.
+
+    The Wales site does not publish a decision date, so only the month and year
+    are real — the day is always 01 and is not a fact about the decision.
+    Records built this way carry decision_date_approximate: True so consumers
+    and the frontend can distinguish these from England's exact dates.
     """
     m = re.match(r'(?:RAC|LVT|RPT)/\d{4}/(\d{2})/(\d{2})', case_ref)
     if not m:
@@ -304,9 +307,12 @@ def build_decision_record(list_entry, detail_metadata, pdf_path):
     sub_category = f"{category}---{sub_slug}" if sub_slug else ""
     sub_category_label = case_type
 
-    # Legal act from detail page
+    # Legal act from the detail page. Run it through the same validator as the
+    # decision text rather than storing it verbatim: the field is sometimes a
+    # comma-joined list of several Acts, and sometimes names an Act that does
+    # not exist ("Leasehold Reform Act 2002").
     act = detail_metadata.get("act", "")
-    legal_acts_cited = [act] if act else []
+    legal_acts_cited = extract_legal_acts(act) if act else []
 
     # Decision date from case reference
     decision_date = decision_date_from_ref(case_ref)
@@ -321,6 +327,8 @@ def build_decision_record(list_entry, detail_metadata, pdf_path):
         "sub_category": sub_category,
         "sub_category_label": sub_category_label,
         "decision_date": decision_date,
+        # Month and year are from the case reference; the day is a placeholder.
+        "decision_date_approximate": bool(decision_date),
         "published_at": "",
         "url": BASE_URL + list_entry["slug"],
         "data_source": "wales",
@@ -340,10 +348,11 @@ def scrape_detail_pages(list_entries, session, existing_index, delay):
 
     for i, entry in enumerate(list_entries):
         case_ref = entry["case_reference"]
+        entry_url = BASE_URL + entry["slug"]
 
         # Skip if already enriched
-        if case_ref in existing_index and existing_index[case_ref].get("full_text"):
-            records.append(existing_index[case_ref])
+        if entry_url in existing_index and existing_index[entry_url].get("full_text"):
+            records.append(existing_index[entry_url])
             if (i + 1) % 50 == 0:
                 print(f"  [{i+1}/{len(list_entries)}] Skipped (already enriched)")
             continue
@@ -471,7 +480,8 @@ def extract_structured_fields(text):
     return fields
 
 
-def process_pdfs(records, session, pdf_dir, manifest_path, output_path, delay):
+def process_pdfs(records, session, pdf_dir, manifest_path, output_path, delay,
+                 existing_records=()):
     """Phase 3: Download PDFs and extract text."""
     if pdfplumber is None:
         print("\nPhase 3: SKIPPED (pdfplumber not installed)")
@@ -576,7 +586,9 @@ def process_pdfs(records, session, pdf_dir, manifest_path, output_path, delay):
         # Save periodically
         if processed % SAVE_EVERY == 0:
             save_manifest(manifest, manifest_path)
-            save_decisions(records, output_path)
+            # Checkpoint the merged set — writing `records` alone would
+            # truncate the file mid-run on a partial crawl.
+            save_decisions(merge_records(existing_records, records), output_path)
             print(f"  [Saved progress at {processed}]")
 
     # Final manifest save
@@ -602,6 +614,33 @@ def save_manifest(manifest, path):
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
     os.replace(tmp, path)
+
+
+def merge_records(existing_records, new_records):
+    """Merge a crawl's records over the existing set, keyed on url.
+
+    Records this run did not reach are preserved. Records it did reach replace
+    their older version, except that a previously-extracted full_text is never
+    overwritten with an empty one — a detail page that failed this time should
+    not lose text that was successfully extracted before.
+    """
+    merged = {}
+    for r in existing_records:
+        if r.get("url"):
+            merged[r["url"]] = r
+
+    for r in new_records:
+        url = r.get("url")
+        if not url:
+            continue
+        previous = merged.get(url)
+        if previous and previous.get("full_text") and not r.get("full_text"):
+            r = {**r, "full_text": previous["full_text"]}
+            if previous.get("text_source"):
+                r["text_source"] = previous["text_source"]
+        merged[url] = r
+
+    return list(merged.values())
 
 
 def save_decisions(records, output_path):
@@ -654,6 +693,12 @@ def main():
         default=None,
         help="Override delay between requests (default: 1.0s list, 0.5s detail/PDF)",
     )
+    parser.add_argument(
+        "--allow-shrink",
+        action="store_true",
+        help="Permit writing fewer decisions than are already on disk "
+             "(refused by default, to stop a partial crawl deleting data)",
+    )
     args = parser.parse_args()
 
     data_dir = os.path.join(SCRIPT_DIR, "..", "data")
@@ -671,7 +716,12 @@ def main():
     print(f"PDF dir: {pdf_dir}")
     print()
 
-    # Load existing output for resumability
+    # Load existing output for resumability.
+    #
+    # Keyed on url, not case_reference: combined references like
+    # "RPT/0008/07/23 & RPT/0009/07/23" are split on "&" when the list page is
+    # parsed, so two distinct decisions can share a reference and collide. The
+    # url is BASE_URL + slug and is unique per decision.
     existing_index = {}
     existing_records = []
     if os.path.exists(args.output):
@@ -680,8 +730,8 @@ def main():
             existing_db = json.load(f)
         existing_records = existing_db.get("decisions", [])
         for r in existing_records:
-            if r.get("case_reference"):
-                existing_index[r["case_reference"]] = r
+            if r.get("url"):
+                existing_index[r["url"]] = r
         print(f"  {len(existing_records)} existing decisions loaded")
         print()
 
@@ -700,32 +750,47 @@ def main():
 
     # Phase 3: PDF download + text extraction
     if not args.skip_pdfs:
-        process_pdfs(records, session, pdf_dir, manifest_path, args.output, detail_delay)
+        process_pdfs(records, session, pdf_dir, manifest_path, args.output, detail_delay,
+                     existing_records=existing_records)
 
-    # Save final output
-    save_decisions(records, args.output)
+    # Merge this run's records into whatever was already on disk.
+    #
+    # This crawl is not guaranteed to see every decision: --sample truncates the
+    # list deliberately, and any list page that 404s or exhausts its retries
+    # drops a whole fiscal year. Writing `records` directly would delete every
+    # decision this run happened not to reach.
+    merged = merge_records(existing_records, records)
+
+    if len(merged) < len(existing_records) and not args.allow_shrink:
+        print(f"\nERROR: refusing to write {len(merged)} decisions over the "
+              f"{len(existing_records)} already on disk.")
+        print("Nothing was written. Re-run when the source site is reachable, "
+              "or pass --allow-shrink if the removal is intended.")
+        return 1
+
+    save_decisions(merged, args.output)
 
     elapsed = time.time() - start_time
 
     # Summary
-    with_text = sum(1 for r in records if r.get("full_text"))
-    with_pdf = sum(1 for r in records if r.get("pdf_url"))
-    with_applicant = sum(1 for r in records if r.get("applicant"))
-    with_respondent = sum(1 for r in records if r.get("respondent"))
-    with_members = sum(1 for r in records if r.get("tribunal_members"))
-    with_outcome = sum(1 for r in records if r.get("decision_outcome"))
-    with_acts = sum(1 for r in records if r.get("legal_acts_cited"))
+    with_text = sum(1 for r in merged if r.get("full_text"))
+    with_pdf = sum(1 for r in merged if r.get("pdf_url"))
+    with_applicant = sum(1 for r in merged if r.get("applicant"))
+    with_respondent = sum(1 for r in merged if r.get("respondent"))
+    with_members = sum(1 for r in merged if r.get("tribunal_members"))
+    with_outcome = sum(1 for r in merged if r.get("decision_outcome"))
+    with_acts = sum(1 for r in merged if r.get("legal_acts_cited"))
 
     # Category breakdown
     categories = {}
-    for r in records:
+    for r in merged:
         cat = r.get("category_label", "Unknown")
         categories[cat] = categories.get(cat, 0) + 1
 
     print(f"\n{'=' * 60}")
     print(f"WALES SCRAPE COMPLETE")
     print(f"{'=' * 60}")
-    print(f"Total decisions: {len(records)}")
+    print(f"Total decisions: {len(merged)}")
     print(f"With PDF URL: {with_pdf}")
     print(f"With full_text: {with_text}")
     print(f"Time: {elapsed / 60:.1f} minutes")
@@ -742,4 +807,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

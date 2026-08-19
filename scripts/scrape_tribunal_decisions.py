@@ -32,6 +32,10 @@ FIELDS = [
     "tribunal_decision_decision_date",
 ]
 DOCUMENT_TYPE = "residential_property_tribunal_decision"
+# A case reference is a region code, a slash, then the rest. Addresses can
+# contain colons too, so the shape is checked before splitting on one.
+CASE_REF_SHAPE = re.compile(r"^[A-Z]{2,4}/\S+")
+
 DEFAULT_BATCH_SIZE = 500
 MAX_RETRIES = 3
 RETRY_DELAY = 5  # seconds
@@ -41,7 +45,7 @@ def parse_title(title: str) -> dict:
     """Extract property address and case reference from the title field."""
     # Titles follow the pattern: "Address: CASE/REF/NUMBER"
     parts = title.rsplit(":", 1)
-    if len(parts) == 2:
+    if len(parts) == 2 and CASE_REF_SHAPE.match(parts[1].strip()):
         return {
             "property_address": parts[0].strip(),
             "case_reference": parts[1].strip(),
@@ -56,7 +60,13 @@ def clean_category(cat: str) -> str:
     """Convert slug-style category to readable text."""
     if not cat:
         return ""
-    return cat.replace("-", " ").replace("   ", " - ").strip().title()
+    label = cat.replace("-", " ").replace("   ", " - ").strip().title()
+    # .title() upper-cases after every non-letter, so "landlord's" becomes
+    # "Landlord'S" and acronyms are flattened to "Hmo". Repair both.
+    label = re.sub(r"(\w)'(\w)", lambda m: m.group(1) + "'" + m.group(2).lower(), label)
+    for acronym in ("Hmo", "Rro", "Hmcts", "Vat", "Uk"):
+        label = re.sub(r"\b" + acronym + r"\b", acronym.upper(), label)
+    return label
 
 
 def fetch_batch(start: int, count: int, session: requests.Session) -> dict:
@@ -66,6 +76,10 @@ def fetch_batch(start: int, count: int, session: requests.Session) -> dict:
         "count": count,
         "start": start,
         "fields": ",".join(FIELDS),
+        # Without an explicit order the API's default can shift between the ~34
+        # start= windows of a crawl, which silently duplicates some records and
+        # skips others. Any stable key works; publication time is monotonic.
+        "order": "-public_timestamp",
     }
 
     for attempt in range(MAX_RETRIES):
@@ -190,7 +204,7 @@ def print_summary(db: dict):
 
     print(f"\nDecisions by category:")
     for cat, count in sorted(categories.items(), key=lambda x: -x[1]):
-        pct = (count / total) * 100
+        pct = (count / total * 100) if total else 0
         print(f"  {cat}: {count:,} ({pct:.1f}%)")
 
     # Date range
@@ -239,8 +253,11 @@ def main():
     db = scrape_all_decisions(batch_size=args.batch_size)
 
     print(f"\nWriting to {args.output}...")
-    with open(args.output, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
+    tmp_path = args.output + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(db, f, indent=2, ensure_ascii=False)
+    os.replace(tmp_path, args.output)
 
     file_size = os.path.getsize(args.output)
     print(f"File size: {file_size / (1024 * 1024):.1f} MB")
