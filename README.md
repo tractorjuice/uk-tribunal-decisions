@@ -1,122 +1,157 @@
-# UK Residential Property Tribunal Decisions Database
+# UK Residential Property Tribunal Decisions
 
-A complete database of residential property tribunal decisions from England (GOV.UK) and Wales (residentialpropertytribunal.gov.wales).
+A searchable database of residential property tribunal decisions from England
+(First-tier Tribunal, Property Chamber, via GOV.UK) and Wales (Residential
+Property Tribunal Wales).
 
-## Browse the Database
+**[Search the database](https://tractorjuice.github.io/uk-tribunal-decisions/)**
+· **[Browse by category, region or year](https://tractorjuice.github.io/uk-tribunal-decisions/browse/)**
 
-**[View the searchable database online](https://tractorjuice.github.io/uk-tribunal-decisions/)** — search and filter all 17,262 decisions by category, region, year, and keyword.
-
-To configure GitHub Pages: set the source to the `/docs` directory on the `main` branch in your repository settings.
+Every count on the site and in this README is generated from the data by
+`scripts/build_site_data.py`. Don't edit them by hand — they get overwritten,
+and hand-maintained counts are why five different places used to disagree about
+how many decisions there were.
 
 ## Contents
 
 ```
-Tribunal-Decisions/
-├── data/
-│   ├── tribunal_decisions.json          # England index (16,479 decisions, ~15 MB)
-│   ├── tribunal_decisions_full.json     # England full text (~326 MB, Git LFS)
-│   ├── wales_tribunal_decisions.json    # Wales decisions with full text (~9 MB)
-│   ├── pdf_manifest.json               # England PDF download manifest
-│   └── wales_pdf_manifest.json         # Wales PDF download manifest
-├── docs/                                # GitHub Pages site
-│   ├── index.html
-│   ├── css/style.css
-│   ├── js/app.js
-│   └── data/decisions.json              # Site data (merged England + Wales)
-├── scripts/
-│   ├── scrape_tribunal_decisions.py     # Scrape England metadata from GOV.UK
-│   ├── enrich_tribunal_decisions.py     # Enrich England with full text
-│   ├── extract_structured_fields.py     # Extract structured fields from text
-│   ├── fetch_pdfs.py                    # Fetch PDFs for England decisions
-│   ├── scrape_wales_decisions.py        # Scrape Wales decisions + PDFs
-│   └── build_site_data.py              # Build frontend data (merges both)
-└── README.md
+data/
+  tribunal_decisions.json          England index, raw from the search API
+  tribunal_decisions_full.json     England, enriched with full text (Git LFS)
+  wales_tribunal_decisions.json    Wales, with text extracted from PDFs
+  pdf_manifest.json                Which England PDFs were downloaded
+  wales_pdf_manifest.json          Which Wales PDFs were downloaded
+docs/                              The published site (GitHub Pages serves /docs)
+  index.html  css/  js/
+  data/decisions.json              Record index the page loads at startup
+  data/search/                     Sharded full-text index, fetched per query
+  browse/                          Generated hub pages
+scripts/
+  scrape_tribunal_decisions.py     1. England metadata from the GOV.UK Search API
+  enrich_tribunal_decisions.py     2. England full text from the GOV.UK Content API
+  extract_structured_fields.py     3. Structured fields from the decision text
+  fetch_pdfs.py                    4. PDFs for decisions with no inline text
+  scrape_wales_decisions.py        5. Wales decisions and PDFs
+  build_site_data.py               6. Everything the site serves
+  verify_data.py                   Validates the published data
+  test_extraction.py               Unit tests for the extraction regexes
 ```
 
-## Data
-
-### England — tribunal_decisions_full.json
-
-Enriched metadata and full text for 16,486 decisions from the GOV.UK Search and Content APIs:
-
-- `case_reference`, `property_address`, `region_code`
-- `category`, `sub_category`, `decision_date`
-- `full_text` — complete decision text (99.7% coverage)
-- `applicant`, `respondent` — parsed from text (~94%)
-- `tribunal_members`, `presiding_judge` (~84%)
-- `decision_outcome`, `financial_amounts`, `hearing_date`
-- `legal_acts_cited` (~95%)
-
-### Wales — wales_tribunal_decisions.json
-
-776 decisions scraped from residentialpropertytribunal.gov.wales across 3 tribunal types:
-
-- Wales - Leasehold Valuation (350 decisions)
-- Wales - Rent Assessment (265 decisions)
-- Wales - Residential Property (161 decisions)
-- Full text extracted from PDFs (93% coverage)
-- Structured fields extracted using the same regex pipeline as England
-
-## Scripts
-
-### England Pipeline
+## Running the pipeline
 
 ```bash
-# 1. Scrape metadata (~5 minutes)
-python3 scripts/scrape_tribunal_decisions.py
+pip install -r requirements.txt      # Python 3.10+
+```
 
-# 2. Enrich with full text (~15 minutes, resumable)
-python3 scripts/enrich_tribunal_decisions.py
+England, in order:
 
-# 3. Extract structured fields (~45 seconds)
-python3 scripts/extract_structured_fields.py
+```bash
+python3 scripts/scrape_tribunal_decisions.py     # ~5 min
+python3 scripts/enrich_tribunal_decisions.py     # ~15 min, resumable
+python3 scripts/extract_structured_fields.py     # ~45 sec, no network
+```
 
-# 4. Fetch PDFs for decisions missing text
+Stage 3 must follow stage 2. Enrichment carries previously repaired fields
+forward, but only extraction recomputes them from the text.
+
+Optionally, for the decisions whose text is only in an attached PDF (downloads
+to a gitignored directory, several GB with `--all`):
+
+```bash
 python3 scripts/fetch_pdfs.py
-python3 scripts/extract_structured_fields.py
+python3 scripts/extract_structured_fields.py     # re-run over the new text
 ```
 
-### Wales Pipeline
+Wales:
 
 ```bash
-# Scrape decisions, detail pages, and PDFs (~30 minutes)
-python3 scripts/scrape_wales_decisions.py
-
-# Test with a small sample first
-python3 scripts/scrape_wales_decisions.py --sample 5
+python3 scripts/scrape_wales_decisions.py                 # ~30-45 min
+python3 scripts/scrape_wales_decisions.py --sample 5      # safe smoke test
 ```
 
-### Build Frontend
+`--sample` is safe: the scraper merges into the existing dataset rather than
+replacing it, and refuses to write fewer decisions than are already on disk
+unless you pass `--allow-shrink`.
+
+Then build the site:
 
 ```bash
-# Merges England + Wales automatically
 python3 scripts/build_site_data.py
+python3 scripts/verify_data.py       # blocks obviously broken output
 ```
 
-### Requirements
+This all runs automatically every Monday — see `.github/workflows/refresh-data.yml`.
 
-```
-pip install requests pdfplumber
-```
+## How the search works
 
-## API Sources
+The page loads `docs/data/decisions.json` (record metadata only) and searches
+that directly. Full-text search uses a separate inverted index under
+`docs/data/search/`, sharded on the first two letters of each term, so a query
+downloads roughly 30 KB rather than the whole index.
 
-- **GOV.UK Search API:** `https://www.gov.uk/api/search.json?filter_document_type=residential_property_tribunal_decision`
-- **GOV.UK Content API:** `https://www.gov.uk/api/content/{path}`
-- **Wales Tribunal:** `https://residentialpropertytribunal.gov.wales/decisions/{type_id}/{year_range}`
+Postings are base-36 delta-encoded document ids indexing into the `decisions`
+array; `shards.json` lists the available prefixes. The most frequent adjacent
+word pairs are indexed as single terms joined by `_`, so a two-word query like
+`service charge` is answered as a phrase rather than as an AND over two words
+that separately appear in most decisions.
+
+Every word in a query must appear. There is no phrase search beyond the indexed
+pairs, and words of four letters or more also match longer words starting with
+them.
+
+## Data notes
+
+- `case_reference` is **not** unique and is missing on a small number of
+  records. Use `url` as the key.
+- Wales decisions carry `decision_date_approximate: true`. The Wales tribunal
+  publishes only a month and year, so the day in those dates is a placeholder.
+- `data/tribunal_decisions.json` is the raw scrape, before repair. It still
+  contains typo'd years and missing region codes. The corrected data is in
+  `tribunal_decisions_full.json` and everything built from it.
+- `legal_acts_cited` only includes Acts whose year matches a real Act. OCR of
+  scanned decisions corrupts years often enough that unrecognised ones are
+  dropped rather than published — see `LEGAL_ACTS` in
+  `scripts/extract_structured_fields.py`.
 
 ## Statistics
 
-| Metric | England | Wales | Total |
-|--------|---------|-------|-------|
-| Decisions | 16,486 | 776 | 17,262 |
-| With full text | 16,461 (99.8%) | 721 (92.9%) | 17,182 |
-| With applicant | 15,631 (94.8%) | 716 (92.3%) | 16,347 |
-| With legal acts | 15,875 (96.3%) | 776 (100%) | 16,651 |
-| Tribunal members | 14,072 (85.4%) | 230 (29.6%) | 14,302 |
-| Date range | 2001–present | 2012–present | 2001–present |
-| Regions | 13 | 1 (WAL) | 14 |
+<!-- BEGIN:generated-stats -->
+| Metric | Count |
+|--------|-------|
+| Decisions | 17,459 |
+| Date range | 2001-05-28 to 2026-04-30 |
+| Categories | 14 |
+| Tribunal regions | 15 |
+| With applicant | 16,538 (94.7%) |
+| With respondent | 16,569 (94.9%) |
+| With tribunal members | 14,385 (82.4%) |
+| With presiding judge | 14,385 (82.4%) |
+| With decision outcome | 9,274 (53.1%) |
+| With financial amounts | 15,328 (87.8%) |
+| With hearing date | 3,034 (17.4%) |
+| With legal acts cited | 16,753 (96.0%) |
 
-## Licence
+_Generated by `scripts/build_site_data.py` on 2026-08-19._
+<!-- END:generated-stats -->
 
-Data sourced from GOV.UK and the Residential Property Tribunal Wales. Contains public sector information licensed under the [Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+## API sources
+
+- GOV.UK Search API — `https://www.gov.uk/api/search.json?filter_document_type=residential_property_tribunal_decision`
+- GOV.UK Content API — `https://www.gov.uk/api/content/{path}`
+- Wales Tribunal — `https://residentialpropertytribunal.gov.wales/decisions/{type_id}/{year_range}`
+
+Both are public and need no authentication.
+
+## Licence and privacy
+
+The code is MIT licensed — see [LICENSE](LICENSE).
+
+The decision data is public sector information licensed under the
+[Open Government Licence v3.0](https://www.nationalarchives.gov.uk/doc/open-government-licence/version/3/).
+The OGL is a copyright licence and does not extend to personal data. These
+records name individuals and their addresses, so please read
+[PRIVACY.md](PRIVACY.md), which also explains how to ask for a record to be
+corrected or removed.
+
+This project is not affiliated with or endorsed by GOV.UK, HMCTS, the Welsh
+Government, or any tribunal.

@@ -1,58 +1,64 @@
-# Repository Guidelines
+# Repository guidelines
 
-## Project Structure & Module Organization
+Detailed architecture and pipeline notes live in **[CLAUDE.md](CLAUDE.md)**.
+Practical usage lives in **[README.md](README.md)**.
 
-This repository contains a Python data pipeline and a static GitHub Pages site for UK residential property tribunal decisions.
+This file deliberately does not restate them. It used to, and the two copies
+drifted: the duplicated pipeline listing lost a required step, and the example
+commit message here was already stale on the commit that introduced it.
 
-- `scripts/` contains the pipeline scripts for scraping, enrichment, PDF extraction, structured-field parsing, and site-data generation.
-- `data/` contains committed JSON datasets and PDF manifests. Large full-text data is tracked with Git LFS.
-- `docs/` is the deployed static site. `docs/index.html`, `docs/css/style.css`, and `docs/js/app.js` make up the frontend; `docs/data/decisions.json` is generated output.
-- `README.md` documents the public project and data sources. `CLAUDE.md` has detailed pipeline notes.
+## Working here
 
-## Build, Test, and Development Commands
+- Python 3.10+, 4-space indent, snake_case, `pathlib.Path` for repo paths.
+  Frontend is plain HTML/CSS/JS with no build step and no npm.
+- Install with `pip install -r requirements.txt`. Dependencies are pinned;
+  `pdfplumber` in particular changes its text output between versions, and
+  every extraction regex is calibrated against the version that produced the
+  current corpus.
 
-Install runtime dependencies:
-
-```bash
-pip install requests pdfplumber
-```
-
-Run the main England pipeline in order:
-
-```bash
-python3 scripts/scrape_tribunal_decisions.py
-python3 scripts/enrich_tribunal_decisions.py
-python3 scripts/extract_structured_fields.py
-python3 scripts/fetch_pdfs.py
-python3 scripts/build_site_data.py
-```
-
-Run a small Wales scrape before a full update:
+## Before you commit
 
 ```bash
-python3 scripts/scrape_wales_decisions.py --sample 5
+python3 scripts/test_extraction.py    # extraction regexes
+python3 scripts/verify_data.py        # published data
 ```
 
-Rebuild the frontend data after changing source datasets or extraction logic:
+Both run in CI. `verify_data.py` exists because fabricated legal citations,
+year-3034 dates and a search index missing every common legal term all reached
+production unnoticed.
 
-```bash
-python3 scripts/build_site_data.py
-```
+## Things that are easy to get wrong
 
-## Coding Style & Naming Conventions
+- **Never write a scraped dataset by replacing it.** Merge into what is already
+  on disk. A crawl can be partial for ordinary reasons — a sampled run, one list
+  page returning 404 — and a replace turns that into permanent data loss.
+- **`extract_structured_fields.py` must run after `enrich_tribunal_decisions.py`.**
+  Enrichment carries repaired fields forward, but only extraction recomputes
+  them.
+- **Don't hand-edit counts** in `README.md`, `docs/index.html` or
+  `docs/llms.txt`. They sit between `<!-- BEGIN:generated-* -->` markers and are
+  rewritten by `scripts/build_site_data.py`.
+- **Watch for one Act name inside another** when touching `LEGAL_ACTS`.
+  "Leasehold Reform Act" is a substring of "Commonhold and Leasehold Reform
+  Act", and "Housing Act" of "Local Government and Housing Act". Both leaks
+  published thousands of citations of Acts that do not exist.
+- **Anything added to `FRONTEND_FIELDS`** in `build_site_data.py` ships to every
+  visitor. That list is an allowlist for a reason.
 
-Use Python 3 with 4-space indentation, `pathlib.Path` for repository paths, and clear snake_case names for functions, variables, and JSON fields. Keep scripts executable with a `#!/usr/bin/env python3` shebang and a short module docstring. Prefer structured JSON parsing and transformation over ad hoc text edits. Frontend code is plain HTML, CSS, and JavaScript with no npm toolchain.
+## Commits and pull requests
 
-## Testing Guidelines
+Short imperative summaries. Keep code, site and data-refresh changes in separate
+commits where practical — a refresh rewrites tens of thousands of lines of
+generated JSON and will bury a real change.
 
-No automated test framework is configured. Validate changes with focused command runs: use scraper sample flags where available, then rebuild `docs/data/decisions.json`. For extraction changes, inspect representative records in `data/tribunal_decisions_full.json`, `data/wales_tribunal_decisions.json`, and the generated site data.
+Describe which pipeline stage a PR affects, list the commands you ran, and call
+out any change to generated files.
 
-## Commit & Pull Request Guidelines
+## Data handling
 
-Recent commits use short, imperative summaries such as `Add llms.txt for the site` and data-update messages such as `Update tribunal decisions data with latest cases (17,262 total)`. Keep commits scoped: separate code, site, and data refresh changes when practical.
+`data/pdfs/` and `data/wales_pdfs/` are gitignored and must stay that way.
+`data/tribunal_decisions_full.json` is Git LFS; run `git lfs pull` before
+building or `build_site_data.py` will stop and tell you to.
 
-Pull requests should describe the pipeline step affected, list commands run, and call out changes to generated files or decision counts. Include screenshots only for visible `docs/` UI changes.
-
-## Data & Configuration Notes
-
-Do not commit downloaded PDF directories such as `data/pdfs/` or `data/wales_pdfs/`; they are intentionally gitignored. Be careful with `data/tribunal_decisions_full.json`, which is large and managed through Git LFS. The public APIs do not require secrets, but scraper changes should preserve existing retry and rate-limit behavior.
+These records contain personal data. Read [PRIVACY.md](PRIVACY.md) before
+changing what the site publishes or how it is indexed.

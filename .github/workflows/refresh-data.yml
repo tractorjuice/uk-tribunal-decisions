@@ -1,0 +1,84 @@
+name: Refresh tribunal decisions
+
+# The dataset's whole value is being current, and refreshes were previously run
+# by hand — which is why the published data was three months stale.
+on:
+  schedule:
+    # 04:15 UTC every Monday, off the hour to avoid the scheduler's busiest minute.
+    - cron: "15 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      skip_wales:
+        description: "Skip the Wales scrape (faster; England only)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: refresh-data
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Fetch LFS content
+        # build_site_data.py refuses to run against an unfetched pointer, so
+        # fail here with a clear message rather than midway through the build.
+        run: git lfs pull
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Scrape decision index from GOV.UK
+        run: python3 scripts/scrape_tribunal_decisions.py
+
+      - name: Enrich with full text
+        run: python3 scripts/enrich_tribunal_decisions.py
+
+      - name: Extract structured fields
+        # Must run after enrichment: enrichment carries repaired fields forward,
+        # but only this stage recomputes them from the text.
+        run: python3 scripts/extract_structured_fields.py
+
+      - name: Scrape Wales decisions
+        if: inputs.skip_wales != true
+        # --skip-pdfs keeps the runner's disk and time bounded. PDF text for
+        # Wales is already in the committed dataset and is carried forward by
+        # the merge; a full PDF pass is a manual, occasional job.
+        run: python3 scripts/scrape_wales_decisions.py --skip-pdfs
+
+      - name: Build site data, hub pages and sitemap
+        run: python3 scripts/build_site_data.py
+
+      - name: Verify the build
+        run: python3 scripts/verify_data.py
+
+      - name: Commit and push
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if git diff --quiet; then
+            echo "No changes — data is already current."
+            exit 0
+          fi
+
+          TOTAL=$(python3 -c "import json;print(f\"{json.load(open('docs/data/decisions.json'))['stats']['total']:,}\")")
+          git add -A
+          git commit -m "Update tribunal decisions data with latest cases (${TOTAL} total)"
+          git push

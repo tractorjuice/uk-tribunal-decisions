@@ -1,77 +1,136 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code (claude.ai/code) working in this repository.
 
-## Project Overview
+## Project overview
 
-A data pipeline and static site for UK Residential Property Tribunal decisions scraped from GOV.UK (England) and residentialpropertytribunal.gov.wales (Wales). Contains 16,486+ England decisions and 776+ Wales decisions with metadata, full text, and PDF attachments. The frontend is hosted on GitHub Pages at https://tractorjuice.github.io/uk-tribunal-decisions/.
+A data pipeline and static site for UK Residential Property Tribunal decisions
+scraped from GOV.UK (England) and residentialpropertytribunal.gov.wales (Wales).
+The frontend is served by GitHub Pages from `/docs` on `main`:
+https://tractorjuice.github.io/uk-tribunal-decisions/
+
+Current record counts live in the generated block in `README.md` and in
+`docs/data/decisions.json` under `stats`. This file deliberately quotes none —
+hand-maintained counts here went stale within weeks, every time.
 
 ## Commands
 
-### Data Pipeline (run sequentially)
-
 ```bash
-# 1. Scrape decision metadata from GOV.UK Search API
-python3 scripts/scrape_tribunal_decisions.py --output data/tribunal_decisions.json --batch-size 500
+pip install -r requirements.txt     # pinned; Python 3.10+ required
 
-# 2. Enrich with full text and PDF URLs (resumable on interruption)
-python3 scripts/enrich_tribunal_decisions.py --input data/tribunal_decisions.json --output data/tribunal_decisions_full.json --concurrency 4
+# England, in order
+python3 scripts/scrape_tribunal_decisions.py [--output FILE] [--batch-size N]
+python3 scripts/enrich_tribunal_decisions.py [--input FILE] [--output FILE] [--concurrency N]
+python3 scripts/extract_structured_fields.py [--input FILE] [--output FILE] [--overwrite]
 
-# 3. Extract structured fields from full_text (applicant, respondent, judges, outcomes, etc.)
-python3 scripts/extract_structured_fields.py
+# Optional: decisions whose text is only in an attached PDF
+python3 scripts/fetch_pdfs.py [--sample N] [--all]
+python3 scripts/extract_structured_fields.py      # re-run over the new text
 
-# 4. Fetch PDFs for decisions missing full_text (~163 decisions, ~50MB)
-python3 scripts/fetch_pdfs.py
-# Then re-run extraction on the newly-filled records:
-python3 scripts/extract_structured_fields.py
+# Wales
+python3 scripts/scrape_wales_decisions.py [--sample N] [--skip-pdfs] [--delay S] [--allow-shrink]
 
-# 5. Scrape Wales tribunal decisions (HTML scraping + PDF extraction, ~30-45 min)
-python3 scripts/scrape_wales_decisions.py
-# Quick test with: python3 scripts/scrape_wales_decisions.py --sample 5
+# Build the site
+python3 scripts/build_site_data.py [--input FILE] [--skip-pages] [--skip-search-index]
 
-# 6. Generate frontend data from index (merges England + Wales automatically)
-python3 scripts/build_site_data.py
+# Checks (both run in CI)
+python3 scripts/test_extraction.py
+python3 scripts/verify_data.py [--strict]
 ```
 
-### Dependencies
-
-`pip install requests pdfplumber`
-
-- `requests` — HTTP client for GOV.UK APIs and PDF downloads
-- `pdfplumber` — PDF text extraction (needed for `fetch_pdfs.py` and `scrape_wales_decisions.py`)
-
-No build tools, linters, or test frameworks are configured.
+`.github/workflows/refresh-data.yml` runs the whole thing weekly.
 
 ## Architecture
 
-**Six-stage pipeline (England 1-4, Wales 5, combined 6):**
+**Stages 1–4 England, 5 Wales, 6 combined.**
 
-1. **Scraper** (`scripts/scrape_tribunal_decisions.py`) — Fetches decision metadata from `GOV.UK Search API` in batches. Parses titles to extract case references, property addresses, and region codes. Outputs `data/tribunal_decisions.json` (15MB index).
+1. **Scraper** (`scrape_tribunal_decisions.py`) — GOV.UK Search API in batches,
+   with an explicit `order` so the pagination windows are stable. Parses titles
+   into address, case reference and region code. Writes
+   `data/tribunal_decisions.json`. This is the *raw* index: it still contains
+   typo'd years and missing region codes, which stage 3 repairs.
 
-2. **Enricher** (`scripts/enrich_tribunal_decisions.py`) — Hits `GOV.UK Content API` for each decision using ThreadPoolExecutor. Adds full decision text, PDF attachments, and parses applicant/respondent via regex. Saves progress every 100 records to `data/tribunal_decisions_full.json` (307MB, stored in Git LFS). Resumable if interrupted.
+2. **Enricher** (`enrich_tribunal_decisions.py`) — GOV.UK Content API over a
+   thread pool, adding `full_text`, attachments and PDF URLs. Workers are pure:
+   they return field dicts and only the main thread mutates records, because
+   mutating them while the main thread serialised the same structure could abort
+   a save. Resumable, checkpointing every 100 records; Ctrl-C cancels queued
+   work and saves.
 
-3. **Field Extractor** (`scripts/extract_structured_fields.py`) — Extracts structured fields from existing `full_text` using regex: improved applicant/respondent (~94%), tribunal members/presiding judge (~84%), decision outcomes (~63%), financial amounts (~82%), hearing dates (~18%), and legal acts cited (~95%). Runs in ~45 seconds, no network calls.
+3. **Field extractor** (`extract_structured_fields.py`) — regex extraction from
+   `full_text`, no network, ~45s. Also repairs `decision_date`, `region_code`
+   and `case_reference`. Fields in `RECOMPUTED_FIELDS` are cleared before each
+   run so output from an older version cannot survive.
 
-4. **PDF Fetcher** (`scripts/fetch_pdfs.py`) — Downloads and extracts text from PDFs for the ~163 decisions missing `full_text`. Uses `pdfplumber` for text extraction. Supports `--sample N` for testing, `--all` for complete archive. PDFs stored in `data/pdfs/` (gitignored), manifest in `data/pdf_manifest.json`. Flags low-text PDFs as `ocr_required`.
+4. **PDF fetcher** (`fetch_pdfs.py`) — downloads and extracts text for decisions
+   with no inline text. PDFs go to gitignored `data/pdfs/`; the manifest records
+   *what was downloaded*, not the text.
 
-5. **Wales Scraper** (`scripts/scrape_wales_decisions.py`) — Scrapes Wales Residential Property Tribunal decisions from `residentialpropertytribunal.gov.wales`. Three phases: list page scraping (3 tribunal types × fiscal years), detail page scraping (metadata extraction), PDF download + text extraction (via pdfplumber). Outputs `data/wales_tribunal_decisions.json`. Supports `--skip-pdfs`, `--sample N`, `--delay`. Resumable on interruption. Wales PDFs stored in `data/wales_pdfs/` (gitignored), manifest in `data/wales_pdf_manifest.json`.
+5. **Wales scraper** (`scrape_wales_decisions.py`) — list pages × fiscal years,
+   then detail pages, then PDFs. Merges into the existing dataset on `url`.
 
-6. **Site Builder** (`scripts/build_site_data.py`) — Transforms the index into `docs/data/decisions.json` with precomputed stats (category counts, region counts, year distribution, category hierarchy, field coverage, legal act frequencies). Automatically merges Wales data if `data/wales_tribunal_decisions.json` exists.
+6. **Site builder** (`build_site_data.py`) — writes `docs/data/decisions.json`,
+   the sharded search index, hub pages, the sitemap, and the generated blocks in
+   `index.html`, `llms.txt` and `README.md`.
 
-**Frontend** (`docs/`) — Vanilla HTML/CSS/JS (no frameworks, no npm). Fetches `decisions.json` client-side and provides search, filtering (category, sub-category, region, year range), sorting, and a stats dashboard. Paginated at 50 per page. Deployed automatically from `/docs` on the main branch via GitHub Pages.
+**Frontend** (`docs/`) — vanilla HTML/CSS/JS, no framework, no npm. Rows are
+built with DOM APIs rather than HTML strings so escaping cannot be forgotten.
+Filter state lives in the query string.
 
-## Key Data Structures
+## Traps worth knowing
 
-All data files use the same JSON structure: `{ "metadata": {...}, "decisions": [...] }`. The enriched version adds `full_text`, `attachments`, `pdf_urls`, `applicant`, `respondent`, `application_type`, and `content_id` to each decision. After structured extraction, decisions also have `tribunal_members` (list), `presiding_judge`, `decision_outcome`, `financial_amounts` (list of floats), `hearing_date`, `legal_acts_cited` (list), and optionally `text_source: "pdf"` for PDF-sourced text. Wales decisions additionally have `data_source: "wales"` and `pdf_url` (single URL string). The frontend data file adds a top-level `stats` object.
+These all caused real, published defects.
 
-## Important Details
+- **Replacing a scraped dataset instead of merging destroys data.** A crawl is
+  partial for ordinary reasons. `scrape_wales_decisions.py` merges on `url` and
+  refuses to shrink the dataset without `--allow-shrink`.
+- **Stage 3 must follow stage 2.** `ENRICHMENT_FIELDS` and `REPAIRED_FIELDS` in
+  the enricher carry repaired values forward; only stage 3 recomputes them.
+- **One Act name nests inside another.** "Leasehold Reform Act" inside
+  "Commonhold and Leasehold Reform Act", "Housing Act" inside "Local Government
+  and Housing Act". Both leaked, publishing thousands of citations of Acts that
+  do not exist. `LEGAL_ACTS` uses negative lookbehinds and a per-Act list of
+  real years; unrecognised years are dropped and reported.
+- **A document-frequency ceiling on the search index removes the words people
+  search for.** A 5% cut deleted the entire legal vocabulary; an 80% cut deleted
+  "landlord", "tenant" and "tribunal". There is no ceiling now — only stopwords
+  are excluded. `verify_data.py` asserts specific legal terms are findable.
+- **`FRONTEND_FIELDS` is an allowlist.** It replaced a denylist that shipped
+  9.7 MB of never-read fields to every visitor.
+- **`Path.exists()` is true for an unfetched Git LFS pointer.** `build_site_data.py`
+  checks the file's first bytes and stops with a clear message.
 
-- `data/tribunal_decisions_full.json` is tracked by Git LFS (see `.gitattributes`)
-- `data/pdfs/` is gitignored (3-9GB when all PDFs downloaded)
-- `data/wales_pdfs/` is gitignored (150-250MB when all Wales PDFs downloaded)
-- `data/pdf_manifest.json` tracks downloaded PDF metadata (committed)
-- `data/wales_pdf_manifest.json` tracks Wales PDF downloads (committed)
-- GOV.UK APIs are public and require no authentication
-- Scraper has retry logic (3 attempts, exponential backoff) and 1-second rate limiting between batches
-- Enricher uses 0.15-second per-thread delay and handles HTTP 429 backoff
-- Region codes: LON, CHI, MAN, BIR, CAM, HAV, NS, TR, NT, VG, NAT, GB, RC, WAL
+## Data structures
+
+All data files are `{ "metadata": {...}, "decisions": [...] }`.
+
+The enriched file adds `full_text`, `attachments`, `pdf_urls`, `applicant`,
+`respondent`, `application_type`, `content_id`; extraction adds
+`tribunal_members`, `presiding_judge`, `decision_outcome`, `financial_amounts`
+(floats), `hearing_date` (ISO 8601), `legal_acts_cited`, and `text_source:
+"pdf"` where applicable. Wales records add `data_source: "wales"`, `pdf_url`,
+and `decision_date_approximate: true` — the Wales tribunal publishes only a
+month and year, so the day in those dates is a placeholder.
+
+`docs/data/decisions.json` carries only `FRONTEND_FIELDS` plus a top-level
+`stats` object. Full text is not in it; it is in the search shards.
+
+Search shards (`docs/data/search/<xx>.json`) map term → base-36 delta-encoded
+document ids indexing into the `decisions` array. `shards.json` lists the
+prefixes. Frequent adjacent word pairs are indexed joined by `_` for phrase
+queries.
+
+**Use `url` as the record key.** `case_reference` is neither unique nor always
+present.
+
+## Other details
+
+- `data/tribunal_decisions_full.json` is Git LFS (`.gitattributes`).
+- `data/pdfs/` and `data/wales_pdfs/` are gitignored.
+- GOV.UK APIs are public and need no authentication. The scrapers rate-limit,
+  back off on 429 without spending their retry budget, and write atomically.
+- Region codes: LON, CHI, MAN, BIR, CAM, HAV, NS, TR, NT, VG, NAT, GB, RC, WAL.
+  `build_site_data.py` maps an empty code to `Unknown` for the stats block.
+- These records name individuals at their home addresses. `PRIVACY.md` records
+  the position and the takedown route; the site deliberately publishes no
+  per-decision pages.
