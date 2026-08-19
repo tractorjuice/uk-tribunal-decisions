@@ -1,4 +1,15 @@
+# NOTE: crawlers only read /robots.txt at the origin root. This site is served
+# from a project path (tractorjuice.github.io/uk-tribunal-decisions/), so the
+# file they actually consult is tractorjuice.github.io/robots.txt, which lives
+# in a different repository. This file is therefore advisory only, and the
+# Sitemap directive below is not auto-discovered — submit the sitemap through
+# Google Search Console and Bing Webmaster Tools instead.
+
 User-agent: *
 Allow: /
+
+# The full-text search shards are machine-readable but not useful as search
+# results, and there are ~1,200 of them.
+Disallow: /uk-tribunal-decisions/data/search/
 
 Sitemap: https://tractorjuice.github.io/uk-tribunal-decisions/sitemap.xml
