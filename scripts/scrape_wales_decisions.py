@@ -64,6 +64,9 @@ FIRST_YEAR = 2012
 MAX_RETRIES = 3
 RETRY_DELAY = 2  # seconds base
 SAVE_EVERY = 25
+
+# Set when phase 3 could not run; main() exits non-zero so CI notices.
+pdf_phase_skipped = False
 OCR_THRESHOLD = 100
 LIST_PAGE_DELAY = 1.0  # seconds between list page requests
 DETAIL_DELAY = 0.5  # seconds between detail/PDF requests
@@ -484,8 +487,15 @@ def process_pdfs(records, session, pdf_dir, manifest_path, output_path, delay,
                  existing_records=()):
     """Phase 3: Download PDFs and extract text."""
     if pdfplumber is None:
-        print("\nPhase 3: SKIPPED (pdfplumber not installed)")
-        print("  Install with: pip install pdfplumber")
+        # Wales publishes decisions only as PDFs, so skipping this phase leaves
+        # every new decision without full_text and absent from the search index.
+        # It used to skip quietly and still exit 0.
+        print("\nPhase 3: SKIPPED — pdfplumber is not installed.")
+        print("  Install it with: pip install -r requirements.txt")
+        print("  WARNING: new decisions will have no full_text and will not be")
+        print("  searchable. Re-run this script once pdfplumber is available.")
+        global pdf_phase_skipped
+        pdf_phase_skipped = True
         return
 
     # Load existing manifest
@@ -771,6 +781,7 @@ def main():
     save_decisions(merged, args.output)
 
     elapsed = time.time() - start_time
+    missing_text = sum(1 for r in merged if r.get("pdf_url") and not r.get("full_text"))
 
     # Summary
     with_text = sum(1 for r in merged if r.get("full_text"))
@@ -804,6 +815,11 @@ def main():
     print(f"  decision_outcome: {with_outcome}")
     print(f"  legal_acts_cited: {with_acts}")
     print(f"\nOutput: {args.output}")
+
+    if pdf_phase_skipped:
+        print(f"\nERROR: PDF extraction did not run. {missing_text} decision(s) have a "
+              f"PDF but no text, and will not appear in full-text search.")
+        return 1
 
 
 if __name__ == "__main__":
