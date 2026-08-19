@@ -20,43 +20,43 @@ This site is not affiliated with or endorsed by GOV.UK, HMCTS, or the Welsh Gove
 ## Coverage
 
 <!-- BEGIN:generated-stats -->
-- **Total decisions:** 17,459
-- **Date range:** 2001-05-28 to 2026-04-30
+- **Total decisions:** 18,738
+- **Date range:** 2001-05-28 to 2026-09-30
 - **Last updated:** 2026-08-19
 
 ### Categories
 
-- Leasehold Disputes Management: 6,733
-- Rents: 5,296
-- Housing Act 2004 And Housing And Planning Act 2016: 2,643
-- Leasehold Enfranchisement And Extension: 976
-- Park Homes: 710
-- Wales - Leasehold Valuation: 353
-- Wales - Rent Assessment: 265
-- Wales - Residential Property: 162
-- Right To Buy: 94
-- Tenant Fees Act: 86
-- Electronic Communications Code: 54
-- Building Safety Act: 47
-- Tenant Associations: 35
-- Leasehold Reform Ground Rent Act 2022: 5
+- Leasehold Disputes Management: 7,081
+- Rents: 5,923
+- Housing Act 2004 And Housing And Planning Act 2016: 2,781
+- Leasehold Enfranchisement And Extension: 994
+- Park Homes: 742
+- Wales - Leasehold Valuation: 394
+- Wales - Rent Assessment: 273
+- Wales - Residential Property: 199
+- Right To Buy: 97
+- Tenant Fees Act: 94
+- Electronic Communications Code: 63
+- Building Safety Act: 52
+- Tenant Associations: 39
+- Leasehold Reform Ground Rent Act 2022: 6
 
 ### Tribunal regions
 
-- LON (London): 7,678
-- CHI (Chichester (South East)): 2,851
-- MAN (Manchester (North West)): 2,025
-- BIR (Birmingham (Midlands)): 1,817
-- CAM (Cambridge (East)): 1,615
-- WAL (Wales): 780
-- HAV (Havant (Southern)): 594
-- Unknown (Unknown): 40
+- LON (London): 8,042
+- CHI (Chichester (South East)): 2,855
+- MAN (Manchester (North West)): 2,228
+- BIR (Birmingham (Midlands)): 1,960
+- CAM (Cambridge (East)): 1,871
+- WAL (Wales): 866
+- HAV (Havant (Southern)): 815
+- Unknown (Unknown): 41
 - NS (NS): 29
 - VG (VG): 10
 - TR (TR): 6
 - NT (NT): 5
+- GB (GB): 4
 - NAT (National): 3
-- GB (GB): 3
 - RC (RC): 3
 
 ### Fields on each record in decisions.json
