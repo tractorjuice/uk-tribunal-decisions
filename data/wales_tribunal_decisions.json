@@ -2,8 +2,8 @@
   "metadata": {
     "source": "Wales Residential Property Tribunal",
     "source_url": "https://residentialpropertytribunal.gov.wales",
-    "total_decisions": 866,
-    "extracted_at": "2026-08-19T16:16:42.030643+00:00",
+    "total_decisions": 867,
+    "extracted_at": "2026-08-24T04:36:38.990481+00:00",
     "description": "Decisions from the Residential Property Tribunal Wales, covering rent assessment, leasehold valuation, and residential property matters. Sourced from residentialpropertytribunal.gov.wales."
   },
   "decisions": [
@@ -32606,6 +32606,22 @@
         9100.0
       ],
       "hearing_date": "2026-03-18"
+    },
+    {
+      "case_reference": "RAC/0001/04/26",
+      "property_address": "9 Turnberry Drive Abergele",
+      "region_code": "WAL",
+      "description": "",
+      "category": "wales-rent-assessment",
+      "category_label": "Wales - Rent Assessment",
+      "sub_category": "wales-rent-assessment---rent-increase",
+      "sub_category_label": "Rent Increase",
+      "decision_date": "2026-04-01",
+      "decision_date_approximate": true,
+      "published_at": "",
+      "url": "https://residentialpropertytribunal.gov.wales/rac00010426-9-turnberry-drive-abergele",
+      "data_source": "wales",
+      "legal_acts_cited": []
     }
   ]
 }
