@@ -2,6 +2,10 @@
 data/pdfs/
 data/wales_pdfs/
 
+# The enriched corpus (~385MB). Stored as a GitHub Release asset instead; see
+# scripts/full_dataset_store.py.
+data/tribunal_decisions_full.json
+
 # Atomic-write temp files. An interrupted enrichment leaves a 345MB .tmp
 # behind, which is otherwise untracked and easy to commit by accident.
 *.tmp

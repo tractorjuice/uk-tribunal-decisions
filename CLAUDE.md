@@ -18,6 +18,10 @@ hand-maintained counts here went stale within weeks, every time.
 ```bash
 pip install -r requirements.txt     # pinned; Python 3.10+ required
 
+# The enriched dataset lives in a GitHub Release, not in Git; fetch it first
+python3 scripts/full_dataset_store.py pull [--output FILE] [--force]
+python3 scripts/full_dataset_store.py push [--input FILE] [--allow-shrink]
+
 # England, in order
 python3 scripts/scrape_tribunal_decisions.py [--output FILE] [--batch-size N]
 python3 scripts/enrich_tribunal_decisions.py [--input FILE] [--output FILE] [--concurrency N]
@@ -99,6 +103,11 @@ These all caused real, published defects.
   9.7 MB of never-read fields to every visitor.
 - **`Path.exists()` is true for an unfetched Git LFS pointer.** `build_site_data.py`
   checks the file's first bytes and stops with a clear message.
+- **Git LFS keeps every version whole.** Rewriting a 385 MB file weekly exhausted
+  the LFS budget, and most refreshes then failed at the final push. The enriched
+  dataset is now a Release asset. `gh release upload --clobber` deletes the old
+  asset before uploading, so `full_dataset_store.py` uploads under a new name and
+  removes old copies only afterwards.
 
 ## Data structures
 
@@ -125,7 +134,9 @@ present.
 
 ## Other details
 
-- `data/tribunal_decisions_full.json` is Git LFS (`.gitattributes`).
+- `data/tribunal_decisions_full.json` is gitignored and stored on the
+  `full-dataset` release, which keeps the latest two copies. A takedown has to
+  reach those too: push the corrected file, then delete the previous asset.
 - `data/pdfs/` and `data/wales_pdfs/` are gitignored.
 - GOV.UK APIs are public and need no authentication. The scrapers rate-limit,
   back off on 429 without spending their retry budget, and write atomically.

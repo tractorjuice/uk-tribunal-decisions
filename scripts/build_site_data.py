@@ -629,13 +629,13 @@ def main():
         if looks_like_lfs_pointer(ENRICHED_INPUT):
             raise SystemExit(
                 f"{ENRICHED_INPUT} is an unfetched Git LFS pointer.\n"
-                "Run `git lfs pull` first. Refusing to fall back to the raw index, which "
+                "Run `python3 scripts/full_dataset_store.py pull` first. Refusing to fall back to the raw index, which "
                 "still contains uncorrected dates and missing region codes."
             )
         if not ENRICHED_INPUT.exists():
             raise SystemExit(
-                f"{ENRICHED_INPUT} not found. Run the enrichment and extraction stages "
-                f"first, or pass --input {INDEX_INPUT} to build from the raw index "
+                f"{ENRICHED_INPUT} not found. Fetch it with `python3 scripts/full_dataset_store.py "
+                f"pull`, or pass --input {INDEX_INPUT} to build from the raw index "
                 f"(note: it contains uncorrected data)."
             )
 

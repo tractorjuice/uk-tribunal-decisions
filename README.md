@@ -17,7 +17,7 @@ how many decisions there were.
 ```
 data/
   tribunal_decisions.json          England index, raw from the search API
-  tribunal_decisions_full.json     England, enriched with full text (Git LFS)
+  tribunal_decisions_full.json     England, enriched with full text (not in Git, see Data notes)
   wales_tribunal_decisions.json    Wales, with text extracted from PDFs
   pdf_manifest.json                Which England PDFs were downloaded
   wales_pdf_manifest.json          Which Wales PDFs were downloaded
@@ -101,6 +101,9 @@ them.
 
 ## Data notes
 
+- `data/tribunal_decisions_full.json` is not in Git. It is stored on the
+  [`full-dataset` release](https://github.com/tractorjuice/uk-tribunal-decisions/releases/tag/full-dataset);
+  `python3 scripts/full_dataset_store.py pull` fetches it (needs the GitHub CLI).
 - `case_reference` is **not** unique and is missing on a small number of
   records. Use `url` as the key.
 - Wales decisions carry `decision_date_approximate: true`. The Wales tribunal

@@ -57,8 +57,9 @@ out any change to generated files.
 ## Data handling
 
 `data/pdfs/` and `data/wales_pdfs/` are gitignored and must stay that way.
-`data/tribunal_decisions_full.json` is Git LFS; run `git lfs pull` before
-building or `build_site_data.py` will stop and tell you to.
+`data/tribunal_decisions_full.json` is gitignored and stored as a GitHub Release
+asset; run `python3 scripts/full_dataset_store.py pull` before building or
+`build_site_data.py` will stop and tell you to.
 
 These records contain personal data. Read [PRIVACY.md](PRIVACY.md) before
 changing what the site publishes or how it is indexed.
