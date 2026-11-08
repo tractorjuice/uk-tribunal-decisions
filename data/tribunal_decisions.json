@@ -4,7 +4,7 @@
     "source_url": "https://www.gov.uk/residential-property-tribunal-decisions",
     "api_url": "https://www.gov.uk/api/search.json",
     "total_decisions": 18894,
-    "extracted_at": "2026-11-08T12:21:45.768933+00:00",
+    "extracted_at": "2026-11-08T12:55:43.254890+00:00",
     "description": "All decisions from the First-tier Tribunal (Property Chamber) as published on GOV.UK. Covers leasehold disputes, service charges, enfranchisement, rents, housing act matters, and more."
   },
   "decisions": [

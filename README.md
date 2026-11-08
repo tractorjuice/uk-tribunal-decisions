@@ -125,8 +125,8 @@ them.
 | Date range | 2001-05-28 to 2026-11-05 |
 | Categories | 14 |
 | Tribunal regions | 15 |
-| With applicant | 18,844 (95.3%) |
-| With respondent | 18,872 (95.4%) |
+| With applicant | 18,847 (95.3%) |
+| With respondent | 18,875 (95.4%) |
 | With tribunal members | 16,427 (83.0%) |
 | With presiding judge | 16,427 (83.0%) |
 | With decision outcome | 10,908 (55.1%) |
