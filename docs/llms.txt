@@ -22,7 +22,7 @@ This site is not affiliated with or endorsed by GOV.UK, HMCTS, or the Welsh Gove
 <!-- BEGIN:generated-stats -->
 - **Total decisions:** 19,783
 - **Date range:** 2001-05-28 to 2026-11-05
-- **Last updated:** 2026-11-08
+- **Last updated:** 2026-11-09
 
 ### Categories
 
