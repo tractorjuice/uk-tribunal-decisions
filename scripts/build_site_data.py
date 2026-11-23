@@ -275,7 +275,10 @@ def build_search_index(decisions, out_dir: Path):
 
     total_bytes = 0
     for prefix, terms in shards.items():
-        payload = json.dumps(terms, separators=(",", ":"))
+        # Sorted, because terms arrive in set-iteration order, which Python
+        # randomises per process. Unsorted, a rebuild of unchanged decisions
+        # rewrote half the shards with the same contents in a different order.
+        payload = json.dumps(terms, separators=(",", ":"), sort_keys=True)
         write_atomic(out_dir / f"{prefix}.json", payload)
         total_bytes += len(payload)
 

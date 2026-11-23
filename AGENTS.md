@@ -19,11 +19,12 @@ commit message here was already stale on the commit that introduced it.
 ## Before you commit
 
 ```bash
-python3 scripts/test_extraction.py    # extraction regexes
-python3 scripts/verify_data.py        # published data
+python3 scripts/test_extraction.py         # extraction regexes
+python3 scripts/test_build_site_data.py    # search index is reproducible
+python3 scripts/verify_data.py             # published data
 ```
 
-Both run in CI. `verify_data.py` exists because fabricated legal citations,
+All three run in CI. `verify_data.py` exists because fabricated legal citations,
 year-3034 dates and a search index missing every common legal term all reached
 production unnoticed.
 

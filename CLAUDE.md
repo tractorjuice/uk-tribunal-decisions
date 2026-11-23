@@ -37,8 +37,9 @@ python3 scripts/scrape_wales_decisions.py [--sample N] [--skip-pdfs] [--delay S]
 # Build the site
 python3 scripts/build_site_data.py [--input FILE] [--skip-pages] [--skip-search-index]
 
-# Checks (both run in CI)
+# Checks (all run in CI)
 python3 scripts/test_extraction.py
+python3 scripts/test_build_site_data.py
 python3 scripts/verify_data.py [--strict]
 ```
 
