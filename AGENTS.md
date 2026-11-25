@@ -45,6 +45,10 @@ production unnoticed.
   published thousands of citations of Acts that do not exist.
 - **Anything added to `FRONTEND_FIELDS`** in `build_site_data.py` ships to every
   visitor. That list is an allowlist for a reason.
+- **A decision's position in `docs/data/decisions.json` is its search id.** The
+  builder keeps positions from the previous build and appends new decisions.
+  Don't sort that array or delete the file before a build: every id changes and
+  every shard is rewritten.
 
 ## Commits and pull requests
 
