@@ -35,6 +35,7 @@ scripts/
   build_site_data.py               6. Everything the site serves
   verify_data.py                   Validates the published data
   test_extraction.py               Unit tests for the extraction regexes
+  test_build_site_data.py          Unit tests for the site builder
 ```
 
 ## Running the pipeline

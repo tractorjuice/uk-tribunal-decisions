@@ -31,6 +31,7 @@ Usage:
 
 import argparse
 import array
+import heapq
 import html
 import json
 import os
@@ -241,8 +242,13 @@ def build_search_index(decisions, out_dir: Path):
         )
 
     phrase_ceiling = len(decisions) * MAX_PHRASE_DOC_RATIO
+    # Ties broken alphabetically. most_common breaks them by insertion order,
+    # which within a document is frozenset order and so varies per process.
+    most_frequent = heapq.nsmallest(
+        MAX_PHRASES, phrase_df.items(), key=lambda item: (-item[1], item[0])
+    )
     kept_phrases = {
-        phrase for phrase, count in phrase_df.most_common(MAX_PHRASES)
+        phrase for phrase, count in most_frequent
         if MIN_PHRASE_DOCS <= count <= phrase_ceiling
     }
     print(f"    Phrases: {len(kept_phrases):,} indexed of "
@@ -275,7 +281,10 @@ def build_search_index(decisions, out_dir: Path):
 
     total_bytes = 0
     for prefix, terms in shards.items():
-        payload = json.dumps(terms, separators=(",", ":"))
+        # Sorted, because terms arrive in set-iteration order, which Python
+        # randomises per process. Unsorted, a rebuild of unchanged decisions
+        # rewrote half the shards with the same contents in a different order.
+        payload = json.dumps(terms, separators=(",", ":"), sort_keys=True)
         write_atomic(out_dir / f"{prefix}.json", payload)
         total_bytes += len(payload)
 
