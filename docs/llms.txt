@@ -63,7 +63,7 @@ This site is not affiliated with or endorsed by GOV.UK, HMCTS, or the Welsh Gove
 
 `case_reference`, `property_address`, `region_code`, `description`, `category_label`, `sub_category_label`, `decision_date`, `decision_date_approximate`, `url`, `applicant`, `respondent`, `presiding_judge`, `decision_outcome`
 
-Full decision text is *not* in decisions.json. It is indexed separately at `/data/search/<prefix>.json` as an inverted index: keys are terms, values are base-36 delta-encoded document ids indexing into the `decisions` array. `/data/search/shards.json` lists the available prefixes.
+Full decision text is *not* in decisions.json. It is indexed separately at `/data/search/<prefix>.json` as an inverted index: keys are terms, values are base-36 delta-encoded document ids indexing into the `decisions` array. `/data/search/shards.json` lists the available prefixes. The array is in no date order: a decision keeps its position, and so its id, from one refresh to the next, and new decisions are appended.
 <!-- END:generated-stats -->
 
 ## Upstream sources

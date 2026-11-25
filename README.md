@@ -96,6 +96,12 @@ word pairs are indexed as single terms joined by `_`, so a two-word query like
 `service charge` is answered as a phrase rather than as an AND over two words
 that separately appear in most decisions.
 
+A decision keeps its id from one refresh to the next. The builder reads the
+previous `decisions.json`, keeps each decision at its old position and appends
+new ones, so a weekly refresh rewrites only the shards holding words from new
+decisions. The array is therefore in no date order; the page sorts results
+itself.
+
 Every word in a query must appear. There is no phrase search beyond the indexed
 pairs, and words of four letters or more also match longer words starting with
 them.

@@ -189,6 +189,39 @@ def replace_generated(text: str, name: str, replacement: str) -> str:
 
 # --- search index ----------------------------------------------------------
 
+# A decision's search id is its position in the published decisions array. The
+# scrape puts new decisions first and sometimes reorders the rest, so taking
+# its order shifted every id each week and rewrote every shard. Instead each
+# decision keeps the position it had in the last build, and new ones go on the
+# end, so a refresh only touches the shards holding words from new decisions.
+
+def load_previous_order(path: Path):
+    """URLs in the order the last build published them, or [] if unavailable."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            return [d.get("url") for d in json.load(f)["decisions"]]
+    except FileNotFoundError:
+        return []
+    except (ValueError, KeyError, TypeError, AttributeError) as e:
+        # Rebuilding is how a broken decisions.json gets fixed, so this cannot
+        # be fatal. The cost is one refresh that rewrites every shard.
+        print(f"  Warning: cannot read the previous order from {path} ({e}); "
+              f"every decision gets a new id")
+        return []
+
+
+def keep_previous_order(decisions, previous_urls):
+    """Put each decision at its previous position; append new ones in input order.
+
+    A decision that has gone is dropped, which moves every one after it down.
+    """
+    position = {url: i for i, url in enumerate(previous_urls) if url}
+    kept = sorted((d for d in decisions if d.get("url") in position),
+                  key=lambda d: position[d["url"]])
+    new = [d for d in decisions if d.get("url") not in position]
+    return kept + new
+
+
 def encode_postings(doc_ids) -> str:
     """Delta-encode ascending doc ids as base-36, joined by '.'.
 
@@ -337,6 +370,20 @@ PAGE_TEMPLATE = """<!DOCTYPE html>
 RECENT_ON_HUB = 50
 
 
+def most_recent(items):
+    """The decisions a hub page lists, newest first.
+
+    Same-date decisions go most recently published first. That used to come
+    free from the array being in scrape order; new decisions now go on the end
+    of it. Wales records have no published_at, so they follow England's.
+    """
+    return sorted(
+        items,
+        key=lambda x: (x.get("decision_date") or "", x.get("published_at") or ""),
+        reverse=True,
+    )[:RECENT_ON_HUB]
+
+
 def render_hub(title, heading, description, canonical, body, depth):
     root = "/".join([".."] * depth) if depth else "."
     return PAGE_TEMPLATE.format(
@@ -384,9 +431,6 @@ def build_hub_pages(decisions, stats):
         if d.get("decision_date"):
             by_year[d["decision_date"][:4]].append(d)
 
-    def recent(items):
-        return sorted(items, key=lambda x: x.get("decision_date") or "", reverse=True)[:RECENT_ON_HUB]
-
     groups = [
         ("category", by_category, "Category",
          lambda k: k,
@@ -427,7 +471,7 @@ def build_hub_pages(decisions, stats):
                 f"    <h3>Recent decisions</h3>\n"
                 f"    <p>The {min(RECENT_ON_HUB, len(items))} most recent. "
                 f"<a href=\"../../\">Search all {len(items):,}</a> using the full interface.</p>\n"
-                + decision_rows(recent(items))
+                + decision_rows(most_recent(items))
             )
 
             write_atomic(path, render_hub(
@@ -588,7 +632,9 @@ def update_generated_docs(stats, today, latest_date):
         + "Full decision text is *not* in decisions.json. It is indexed separately at "
           "`/data/search/<prefix>.json` as an inverted index: keys are terms, values are "
           "base-36 delta-encoded document ids indexing into the `decisions` array. "
-          "`/data/search/shards.json` lists the available prefixes.\n"
+          "`/data/search/shards.json` lists the available prefixes. The array is in no "
+          "date order: a decision keeps its position, and so its id, from one refresh to "
+          "the next, and new decisions are appended.\n"
     )
     llms_path = DOCS_DIR / "llms.txt"
     write_atomic(llms_path, replace_generated(
@@ -665,6 +711,15 @@ def main():
         print(f"  {len(wales_decisions):,} Wales decisions merged")
 
     print(f"  {len(decisions):,} total decisions")
+
+    # Before anything else uses the order: it fixes every search id.
+    previous_urls = load_previous_order(output_path)
+    decisions = keep_previous_order(decisions, previous_urls)
+    known = set(filter(None, previous_urls))
+    current = {d.get("url") for d in decisions}
+    new_count = sum(1 for d in decisions if d.get("url") not in known)
+    print(f"  Search ids: {len(decisions) - new_count:,} kept, {new_count:,} new, "
+          f"{len(known - current):,} removed")
 
     # Search index first, while full_text is still in memory.
     if not args.skip_search_index:

@@ -130,6 +130,13 @@ document ids indexing into the `decisions` array. `shards.json` lists the
 prefixes. Frequent adjacent word pairs are indexed joined by `_` for phrase
 queries.
 
+A decision's id is its position in that array, and positions persist:
+`build_site_data.py` reads the previous `decisions.json`, keeps each decision
+where it was and appends new ones, so a refresh rewrites only the shards
+holding words from new decisions. The array is therefore in no date order.
+Sorting it, or deleting the file before a build, reassigns every id and
+rewrites every shard; removing a decision shifts the ids after it.
+
 **Use `url` as the record key.** `case_reference` is neither unique nor always
 present.
 
